@@ -1,0 +1,1 @@
+from src.collectors import search  # noqa: F401
