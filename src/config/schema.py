@@ -47,6 +47,7 @@ class SourceConfig(BaseModel):
 class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     endpoint: str = Field(min_length=1)
+    api_key:str =""
     depth: str = "basic"
     timeout_s: int = Field(default=30, ge=1, le=120)
     max_results: int = Field(default=20, ge=1, le=100)

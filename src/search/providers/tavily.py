@@ -9,7 +9,7 @@ class TavilyProvider(SearchProvider):
     name = "tavily"
 
     def __init__(self,cfg: dict[str,Any]):
-        super.__init__(cfg)
+        super().__init__(cfg)
         self.endpoint = cfg.get("endpoint","https://api.tavily.com/search")
         self.api_key = cfg.get("api_key") or os.environ.get("TAVILY_API_KEY")
 
@@ -27,7 +27,7 @@ class TavilyProvider(SearchProvider):
             payload["days"] = max(
                 (datetime.now(timezone.utc) - since).days,1
             )
-        async with session.post(self.endpoint, json=payload,timezone=30) as resp:
+        async with session.post(self.endpoint, json=payload,timeout=30) as resp:
             resp.raise_for_status()
             data = await resp.json()
         out = []
