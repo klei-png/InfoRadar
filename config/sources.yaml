@@ -1,0 +1,48 @@
+sources:
+  - id: q_ai_llm_release
+    name: "AI 模型发布"
+    category: ai
+    type: search
+    interval_min: 180
+    weight: 25
+    enabled: true
+    params:
+      provider: tavily
+      query: "LLM model release OR 大模型发布"
+      max_results: 20
+
+  - id: q_ai_infra
+    name: "AI infra / 推理优化"
+    category: ai
+    type: search
+    interval_min: 360
+    weight: 20
+    enabled: true
+    params:
+      provider: tavily
+      query: "AI inference optimization OR 推理优化 OR RAG"
+      max_results: 20
+
+  - id: q_fin_fed
+    name: "美联储 / 宏观"
+    category: finance
+    type: search
+    interval_min: 30
+    weight: 25
+    enabled: true
+    params:
+      provider: tavily
+      query: "美联储 议息 OR Fed rate decision"
+      max_results: 20
+
+  - id: q_fin_earnings
+    name: "财报 / AI 板块"
+    category: finance
+    type: search
+    interval_min: 30
+    weight: 25
+    enabled: true
+    params:
+      provider: tavily
+      query: "英伟达 台积电 财报 OR earnings AI chip"
+      max_results: 20

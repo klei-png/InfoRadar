@@ -1,0 +1,7 @@
+providers:
+  tavily:
+    api_key: ""
+    endpoint: "https://api.tavily.com/search"
+    depth: "basic"
+    timeout_s: 30
+    max_results: 20
