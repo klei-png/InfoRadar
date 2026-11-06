@@ -6,10 +6,14 @@ from pydantic import ValidationError
 
 from src.config.schema import ConfigError,ProviderConfig,SourceConfig
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
 
 def _read_yaml(path: str) -> Any:
     p = Path(path)
+
+    if not p.is_absolute():
+        p = PROJECT_ROOT / p
     if not p.exists():
         raise ConfigError(f"config file not found: {path}")
     if not p.is_file():
