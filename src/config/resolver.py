@@ -16,7 +16,9 @@ def resolve_provider_cfg(source: SourceConfig,providers:dict[str,ProviderConfig]
     env_key = f"{name.upper()}_API_KEY"
     api_key = os.environ.get(env_key,"").strip()
     if not api_key:
-        raise ConfigError(f"missing API key for provider {name!r}: set env {env_key}")
+        api_key = getattr(base,"api_key","").strip()
+    if not api_key:
+        raise ConfigError(f"missing API key for provider {name!r}: set env {env_key} or in yaml")
     overrides = {
         k: getattr(source.params, k)
         for k in PROVIDER_OVERRIDABLE_KEYS
