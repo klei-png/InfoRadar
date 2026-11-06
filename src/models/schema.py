@@ -9,9 +9,9 @@ class RawItem:
     external_id: str                     #the unique id of the item within the source
     url: str
     title: str
-    content: str
-    snippet: str
-    publish_at: Optional[datetime]=None
+    content: str = ""
+    snippet: str = ""
+    published_at: Optional[datetime]=None
     raw_meta: dict[str,Any]=field(default_factory=dict) #additional raw metadata from the source
 
 @dataclass

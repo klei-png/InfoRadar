@@ -62,6 +62,19 @@ CREATE TABLE IF NOT EXISTS digests (
   cost_tokens INT,
   generated_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id BIGSERIAL PRIMARY KEY,
+    item_id BIGINT REFERENCES items(id) ON DELETE SET NULL,
+    digest_id BIGINT REFERENCES digests(id) ON DELETE SET NULL,
+    rating SMALLINT NOT NULL,              -- 1=好, -1=坏, 0=中性
+    comment TEXT,
+    prompt_version VARCHAR(64),            -- 关联生成该内容时的 prompt 版本
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_item ON feedback(item_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_digest ON feedback(digest_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC);
 """
 
 def get_conn() -> psycopg.Connection:
