@@ -23,6 +23,8 @@ def insert_items(conn: psycopg.Connection, items: Iterable[Item]) -> int:
         for it in items:
             uh = gen_url_hash(it.url)
             th = simhash64(it.title) if it.title else 0
+            if th >= 2 ** 63:
+                th -= 2 ** 64
             fetch_time = it.fetched_at or datetime.now(timezone.utc)
             try:
                 cursor.execute(sql, (
@@ -37,6 +39,7 @@ def insert_items(conn: psycopg.Connection, items: Iterable[Item]) -> int:
                     inserted += 1
             except Exception as e:
                 logger.error(f"Failed to insert item {it.url}: {e}")
+                conn.rollback()
         conn.commit()
         return inserted
 
