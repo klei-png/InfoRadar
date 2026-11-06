@@ -2,20 +2,22 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Optional, Type
 
+from src.config.schema import SourceConfig
 from src.models.schema import RawItem, Item
 
 
 class BaseCollector(ABC):
     type_name: str = "base"
 
-    def __init__(self, cfg: dict):
-        self.cfg = cfg
+    def __init__(self, source: SourceConfig):
+        self.cfg = source
 
     @abstractmethod
     async def fetch(self, session, since: Optional[datetime] = None) -> list[RawItem]:
         ...
 
     def normalize(self, raw: RawItem) -> Item:
+
         return Item(
             source_id=raw.source_id,
             external_id=raw.external_id,
@@ -25,7 +27,7 @@ class BaseCollector(ABC):
             snippet=raw.snippet,
             published_at=raw.published_at,
             fetched_at=datetime.now(timezone.utc),
-            category=self.cfg.get("category", "ai"),
+            category=self.cfg.category,
             raw_meta=raw.raw_meta,
             low_confidence_time=raw.published_at is None,
         )
@@ -47,14 +49,13 @@ def register(cls: Type[BaseCollector]) -> Type[BaseCollector]:
     return cls
 
 
-def build_collector(cfg: dict) -> BaseCollector:
-    cls = _REGISTRY.get(cfg.get("id")) or _REGISTRY.get(cfg.get("type"))
+def build_collector(source:SourceConfig) -> BaseCollector:
+    cls = _REGISTRY.get(source.type)
     if cls is None:
         raise ValueError(
-            f"no collector for id={cfg.get('id')!r} type={cfg.get('type')!r}; "
-            f"registered={sorted(_REGISTRY)}"
+            f"no collector for type={source.type!r}; registered={sorted(_REGISTRY)}"
         )
-    return cls(cfg)
+    return cls(source)
 
 
 def registered_types() -> list[str]:
