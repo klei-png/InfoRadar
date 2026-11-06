@@ -9,6 +9,11 @@ from src.pipeline.dedup import url_hash as gen_url_hash, simhash64
 
 logger = logging.getLogger(__name__)
 
+def _clean_text(value: str|None) -> str|None:
+    if value is None:
+        return
+    return value.replace("\x00","")
+
 def insert_items(conn: psycopg.Connection, items: Iterable[Item]) -> int:
     sql = """
          INSERT INTO items (
@@ -28,9 +33,9 @@ def insert_items(conn: psycopg.Connection, items: Iterable[Item]) -> int:
             fetch_time = it.fetched_at or datetime.now(timezone.utc)
             try:
                 cursor.execute(sql, (
-                    it.source_id, it.external_id, it.url, uh,
-                    it.title[:512] if it.title else "",
-                    th, it.content, it.snippet,
+                    it.source_id, it.external_id, _clean_text(it.url), uh,
+                    _clean_text(it.title)[:512] if it.title else "",
+                    th, _clean_text(it.content), _clean_text(it.snippet),
                     it.published_at, fetch_time,
                     it.category, it.lang,
                     json.dumps(it.raw_meta, ensure_ascii=False)
@@ -57,21 +62,30 @@ def fetch_candidates_for_agent(conn: psycopg.Connection,limit: int = 80) -> list
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-def record_feedback(conn: psycopg.Connection,item_id: int,action: str):
-    sql = "INSERT INTO feedback (item_id, action) VALUES (%s, %s)"
+def record_feedback(conn: psycopg.Connection, item_id: int | None,
+                    digest_id: int | None, rating: int,
+                    comment: str | None = None,
+                    prompt_version: str | None = None):
+    sql = """
+        INSERT INTO feedback (item_id, digest_id, rating, comment, prompt_version)
+        VALUES (%s, %s, %s, %s, %s)
+    """
+    if rating not in (1, 0, -1):
+        raise ValueError(f"rating must be 1/0/-1, got {rating}")
     with conn.cursor() as cursor:
-        cursor.execute(sql, (item_id, action))
+        cursor.execute(sql, (item_id, digest_id, rating, comment, prompt_version))
     conn.commit()
+
 
 def get_recent_feedback(conn: psycopg.Connection, limit: int = 10) -> list[dict]:
     sql = """
-            SELECT i.title, i.snippet, f.action
-            FROM feedback f
-            JOIN items i ON i.id = f.item_id
-            WHERE f.action IN ('useful', 'useless')
-            ORDER BY f.created_at DESC
-            LIMIT %s
-        """
+        SELECT i.title, i.snippet, f.rating, f.created_at
+        FROM feedback f
+        JOIN items i ON i.id = f.item_id
+        WHERE f.rating IN (1, -1)
+        ORDER BY f.created_at DESC
+        LIMIT %s
+    """
     with conn.cursor() as cursor:
         cursor.execute(sql, (limit,))
         columns = [desc[0] for desc in cursor.description]
