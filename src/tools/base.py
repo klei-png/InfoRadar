@@ -17,7 +17,12 @@ def register_tool(tool: Tool) -> Tool:
     _REGISTRY[tool.name] = tool
     return tool
 
-def get_tools() -> list[Tool]:
+def get_tool(name: str) -> Tool:
+    if name not in _REGISTRY:
+        raise ValueError(f"unknown tool: {name!r}; known={sorted(_REGISTRY)}")
+    return _REGISTRY[name]
+
+def all_tools() -> list[Tool]:
     return list(_REGISTRY.values())
 
 def to_openai_schema(tool:Tool) -> dict:
