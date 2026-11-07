@@ -1,6 +1,7 @@
 import hashlib
 import re
 from sys import path
+
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 #tracking parameters that need to be filtered
@@ -8,6 +9,8 @@ TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term",
     "utm_content", "ref", "from", "spm", "fbclid"
 }
+
+SIMHASH_THRESHOLD = 3
 
 def normalize_url(url: str) -> str:
     try:
@@ -57,3 +60,15 @@ def simhash64(text: str) -> int:
 
 def hamming_distance(a: int, b: int) -> int:
     return (a ^ b).bit_count()
+
+def _exists_by_url_hash(url_hash_value: str) -> bool:
+    try:
+
+        return exists_by_url_hash(url_hash_value)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        from src.db.repository import get_item_by_url_hash
+        return get_item_by_url_hash(url_hash_value) is not None
+    except (ImportError, AttributeError):
+        return False
