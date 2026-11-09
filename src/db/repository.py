@@ -90,3 +90,26 @@ def get_recent_feedback(conn: psycopg.Connection, limit: int = 10) -> list[dict]
         cursor.execute(sql, (limit,))
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
+    """
+        batch write score results and flip item statuses
+        result format: [{item_id,model_score,reason}]
+    """
+    upsert = """
+        INSERT  INTO item_scores (item_id, model_score, reason)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (item_id) DO UPDATE
+        SET model_score = EXCLUDED.model_score, reason = EXCLUDED.reason
+    """
+    flip = "UPDATE items SET status = 'scored' WHERE id = %s"
+    n = 0
+    with conn.cursor() as cursor:
+        for r in results:
+            cursor.execute(upsert,(r["item_id"],r["model_score"],r["reason"][:255]))
+            cursor.execute(flip,(r["item_id"]))
+            n += 1
+    conn.commit()
+    return n
+
+
