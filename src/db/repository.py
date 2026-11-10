@@ -107,7 +107,7 @@ def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
     with conn.cursor() as cursor:
         for r in results:
             cursor.execute(upsert,(r["item_id"],r["model_score"],r["reason"][:255]))
-            cursor.execute(flip,(r["item_id"]))
+            cursor.execute(flip,(r["item_id"],))
             n += 1
     conn.commit()
     return n
