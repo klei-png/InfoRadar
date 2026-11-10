@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import os
+from smtpd import usage
 from typing import Any
 
 import litellm
+from openai import max_retries
 
 logger = logging.getLogger(__name__)
 
@@ -46,3 +48,46 @@ async def chat(
             logger.warning(f"llm attempt {attempt}/{max_retries} failed: {e}; retry in {wait}")
             await asyncio.sleep(wait)
     raise LLMError(f"chat failed after {max_retries} retries: {last_exc}") from last_exc
+
+async def chat_with_meta(
+        messages: list[dict[str,str]],
+        model: str|None = None,
+        *,
+        json_mode: bool = False,
+        temperature: float = 0.2,
+        max_retries: int = 3,
+) -> tuple[str, dict]:
+    model = model or DEFAULT_MODEL
+    kwargs: dict[str, Any] = dict(
+        model=model, messages=messages, temperature=temperature
+    )
+    if json_mode:
+        kwargs["response_format"] = {"type":"json_object"}
+
+    last_exc: Exception | None = None
+    for attempt in range(1,max_retries+1):
+        try:
+            resp = await litellm.acompletion(**kwargs)
+            usage = resp.usage
+            try:
+                cost = litellm.completion_cost(resp)
+            except Exception:
+                cost = None
+            meta = {
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "cost_usd": cost,
+            }
+
+            return resp.choices[0].message.content or "",meta
+        except Exception as e:
+            last_exc = e
+            wait = 2**attempt
+            logger.warning("llm attempt %d/%d failed: %s; retry in %ds",
+                           attempt,max_retries,e,wait)
+            await asyncio.sleep(wait)
+    raise LLMError(f"chat failed after {max_retries} retries: {last_exc}") from last_exc
+
+
+
+
