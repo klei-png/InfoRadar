@@ -3,6 +3,8 @@ import logging
 from datetime import datetime,timezone
 from typing import Iterable
 import psycopg
+from litellm.integrations.zerobus import row
+from psycopg import sql
 
 from src.models.schema import Item
 from src.pipeline.dedup import url_hash as gen_url_hash, simhash64
@@ -112,4 +114,38 @@ def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
     conn.commit()
     return n
 
+def fetch_top_item(conn:psycopg.Connection,min_score:int=7,hours:int=24,limit:int=60) -> list[dict]:
+    """ get the high-scoring items within the time window for the summary agent to use"""
+    sql = """
+        SELECT i.id,i.category,i.title,i.snippet,i.url,
+                s.model_score,s.reason
+        FROM items i
+        JOIN item_scores s ON s.item_id = i.id
+        WHERE s.model_score >= %s
+            AND i.fetched_at >= NOW() - make_interval(hours => %s)
+        ORDER BY i.category, s.model_score DESC
+        LIMIT %s
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql,(min_score,hours,limit))
+        columns = [d[0] for d in cursor.description]
+        return [dict(zip(columns,row)) for row in cursor.fetchall()]
 
+def save_digest(conn: psycopg.Connection,date,category:str,
+                content_md: str,item_count: int,cost_tokens: int,
+                prompt_version: str):
+    sql = """
+        INSERT INTO digest (date, category, content_md,item_count,
+                            cost_tokens, prompt_version, generated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (date,category) DO UPDATE SET
+            content_md = EXCLUDED.content_md,
+            item_count = EXCLUDED.item_count,
+            cost_tokens = EXCLUEDE.cost_tokens,
+            prompt_version = EXCLUDED.prompt_version,
+            generated_at = NOW()
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql,(date,category,content_md,item_count,
+                            cost_tokens,prompt_version))
+    conn.commit()
