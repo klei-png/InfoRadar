@@ -5,10 +5,11 @@ import re
 
 
 from src.db.connection import get_conn
-from src.db.repository import fetch_candidates_for_agent, save_scores
+from src.db.repository import fetch_candidates_for_agent, save_scores, mark_items_status
 from src.llm.gateway import chat, LLMError
 
 logger = logging.getLogger(__name__)
+blocked: list[int] = []
 
 PROMPT_VERSION = "scorer -v1"
 SYSTEM_PROMPT = """你是信息质量评估员，评估一条信息对追踪其所属领域动态的价值。
@@ -77,12 +78,16 @@ async def run_scoring(limit: int = 40, concurrency: int = 5) -> dict:
                 return await score_item(it)
             except LLMError as e:
                 logger.error("score failed for item %s: %s",it["id"],e)
+                blocked.append(it["id"])
                 return None
     results = [r for r in await asyncio.gather(*(one(c) for c in candidates)) if r]
 
     conn = get_conn()
     try:
         saved = save_scores(conn, results)
+        if blocked:
+            mark_items_status(conn,blocked,"blocked")
+            logger.info("marked %d item(s) as blocked", len(blocked))
     finally:
         conn.close()
 

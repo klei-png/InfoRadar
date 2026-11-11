@@ -149,3 +149,11 @@ def save_digest(conn: psycopg.Connection,date,category:str,
         cursor.execute(sql,(date,category,content_md,item_count,
                             cost_tokens,prompt_version))
     conn.commit()
+
+def mark_items_status(conn: psycopg.Connection,item_ids:list[int],status:str):
+    sql = """
+        UPDATE items SET status = %s WHERE id = ANY(%S)
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql,(status,item_ids))
+    conn.commit()
