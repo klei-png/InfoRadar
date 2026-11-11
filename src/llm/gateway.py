@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 
+from litellm.exceptions import BadRequestError
 from typing import Any
 
 import litellm
@@ -42,6 +43,9 @@ async def chat(
             except Exception:
                 logger.info(f"llm model={model} in={usage.prompt_tokens} out={usage.completion_tokens}")
             return resp.choices[0].message.content or ""
+        except BadRequestError as e:
+            logger.error("llm rejected (no retry): %.100s",e)
+            raise LLMError(f"chat rejected: {e}") from e
         except Exception as e:
             last_exc = e
             wait = 2 ** attempt
@@ -80,6 +84,9 @@ async def chat_with_meta(
             }
 
             return resp.choices[0].message.content or "",meta
+        except BadRequestError as e:
+            logger.error("llm rejected (no retry): %.100s",e)
+            raise LLMError(f"chat rejected: {e}") from e
         except Exception as e:
             last_exc = e
             wait = 2**attempt
