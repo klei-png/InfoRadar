@@ -64,7 +64,7 @@ async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
         return {"digest":0}
     groups: dict[str, list[dict]] = defaultdict(list)
     for it in items:
-        groups[it["categroy"]].append(it)
+        groups[it["category"]].append(it)
 
     today = datetime.now().date()
     conn = get_conn()
@@ -92,4 +92,4 @@ async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    print(asyncio.run(run_digest()))
+    print(asyncio.run(run_digest(min_score=7,hours=48)))

@@ -135,13 +135,13 @@ def save_digest(conn: psycopg.Connection,date,category:str,
                 content_md: str,item_count: int,cost_tokens: int,
                 prompt_version: str):
     sql = """
-        INSERT INTO digest (date, category, content_md,item_count,
+        INSERT INTO digests (date, category, content_md,item_count,
                             cost_tokens, prompt_version, generated_at)
         VALUES (%s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (date,category) DO UPDATE SET
             content_md = EXCLUDED.content_md,
             item_count = EXCLUDED.item_count,
-            cost_tokens = EXCLUEDE.cost_tokens,
+            cost_tokens = EXCLUDED.cost_tokens,
             prompt_version = EXCLUDED.prompt_version,
             generated_at = NOW()
     """
