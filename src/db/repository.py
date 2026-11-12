@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime,timezone
+from datetime import datetime, timezone
 from typing import Iterable
 import psycopg
 from litellm.integrations.zerobus import row
@@ -11,10 +11,12 @@ from src.pipeline.dedup import url_hash as gen_url_hash, simhash64
 
 logger = logging.getLogger(__name__)
 
-def _clean_text(value: str|None) -> str|None:
+
+def _clean_text(value: str | None) -> str | None:
     if value is None:
         return
-    return value.replace("\x00","")
+    return value.replace("\x00", "")
+
 
 def insert_items(conn: psycopg.Connection, items: Iterable[Item]) -> int:
     sql = """
@@ -50,7 +52,8 @@ def insert_items(conn: psycopg.Connection, items: Iterable[Item]) -> int:
         conn.commit()
         return inserted
 
-def fetch_candidates_for_agent(conn: psycopg.Connection,limit: int = 80) -> list[dict]:
+
+def fetch_candidates_for_agent(conn: psycopg.Connection, limit: int = 80) -> list[dict]:
     sql = """
             SELECT id, source_id, title, snippet, url, category, published_at
             FROM items
@@ -63,6 +66,7 @@ def fetch_candidates_for_agent(conn: psycopg.Connection,limit: int = 80) -> list
         cursor.execute(sql, (limit,))
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
 
 def record_feedback(conn: psycopg.Connection, item_id: int | None,
                     digest_id: int | None, rating: int,
@@ -93,6 +97,7 @@ def get_recent_feedback(conn: psycopg.Connection, limit: int = 10) -> list[dict]
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+
 def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
     """
         batch write score results and flip item statuses
@@ -108,13 +113,14 @@ def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
     n = 0
     with conn.cursor() as cursor:
         for r in results:
-            cursor.execute(upsert,(r["item_id"],r["model_score"],r["reason"][:255]))
-            cursor.execute(flip,(r["item_id"],))
+            cursor.execute(upsert, (r["item_id"], r["model_score"], r["reason"][:255]))
+            cursor.execute(flip, (r["item_id"],))
             n += 1
     conn.commit()
     return n
 
-def fetch_top_item(conn:psycopg.Connection,min_score:int=7,hours:int=24,limit:int=60) -> list[dict]:
+
+def fetch_top_item(conn: psycopg.Connection, min_score: int = 7, hours: int = 24, limit: int = 60) -> list[dict]:
     """ get the high-scoring items within the time window for the summary agent to use"""
     sql = """
         SELECT i.id,i.category,i.title,i.snippet,i.url,
@@ -127,12 +133,13 @@ def fetch_top_item(conn:psycopg.Connection,min_score:int=7,hours:int=24,limit:in
         LIMIT %s
     """
     with conn.cursor() as cursor:
-        cursor.execute(sql,(min_score,hours,limit))
+        cursor.execute(sql, (min_score, hours, limit))
         columns = [d[0] for d in cursor.description]
-        return [dict(zip(columns,row)) for row in cursor.fetchall()]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-def save_digest(conn: psycopg.Connection,date,category:str,
-                content_md: str,item_count: int,cost_tokens: int,
+
+def save_digest(conn: psycopg.Connection, date, category: str,
+                content_md: str, item_count: int, cost_tokens: int,
                 prompt_version: str):
     sql = """
         INSERT INTO digests (date, category, content_md,item_count,
@@ -146,14 +153,59 @@ def save_digest(conn: psycopg.Connection,date,category:str,
             generated_at = NOW()
     """
     with conn.cursor() as cursor:
-        cursor.execute(sql,(date,category,content_md,item_count,
-                            cost_tokens,prompt_version))
+        cursor.execute(sql, (date, category, content_md, item_count,
+                             cost_tokens, prompt_version))
     conn.commit()
 
-def mark_items_status(conn: psycopg.Connection,item_ids:list[int],status:str):
+
+def mark_items_status(conn: psycopg.Connection, item_ids: list[int], status: str):
     sql = """
         UPDATE items SET status = %s WHERE id = ANY(%S)
     """
     with conn.cursor() as cursor:
-        cursor.execute(sql,(status,item_ids))
+        cursor.execute(sql, (status, item_ids))
     conn.commit()
+
+
+def list_recent_digests(conn: psycopg.Connection, days: int = 7) -> list[dict]:
+    sql = """
+        SELECT date,category,item_count,cost_tokens,prompt_version,
+            generated_at,LEFT(content_md,120) AS preview
+        FROM digests
+        WHERE date >= CURRENT_DATE - (%s || ' days')::interval
+        ORDER BY date DESC, category
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql, (str(days),))
+        res = [dict(zip([d[0] for d in cursor.description]), row) for row in cursor.fetchall()]
+        return res
+
+
+def get_latest_digest(conn: psycopg.Connection, category: str) -> dict | None:
+    sql = """
+        SELECT date, category, content_md, item_count, generated_at
+        FROM digests WHERE category = %s
+        ORDER BY date DESC LIMIT 1
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql, (category,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(zip([d[0] for d in cursor.description], row))
+
+def list_scored_items(conn: psycopg.Connection,category: str|None = None,
+                      min_score: int = 0, limit: int = 50, offset: int = 0) -> list[dict]:
+    sql = """
+        SELECT i.id,i.category,i.title,i.snippet,i.url,i.published_at,
+                s.model_score,s.reason
+        FROM items i
+        JOIN item_scores s ON s.item_id = i.id
+        WHERE s.model_score >= %s
+            AND (%s::text IS NULL OR i.category = %s)
+        ORDER BY i.published_at DESC NULLS LAST
+        LIMIT %s OFFSET %s
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql,(min_score,category,category,limit,offset))
+        return [dict(zip([d[0] for d in cursor.description]),row) for row in cursor.fetchall()]
