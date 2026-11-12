@@ -42,7 +42,7 @@ async def run_sources(sources) -> dict:
     return {"sources": len(sources), "fetched": len(items), "inserted": inserted}
 
 async def run_once(since=None) -> dict:
-    return run_source(enabled_sources(load_sources()))
+    return await run_sources(enabled_sources(load_sources()))
 
 
 if __name__ == "__main__":

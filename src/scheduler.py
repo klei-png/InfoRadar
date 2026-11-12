@@ -2,6 +2,9 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+from apscheduler.triggers.cron import CronTrigger
+from src.agents.scorer import run_scoring
+from src.agents.digest import run_digest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -35,6 +38,21 @@ def build_scheduler() -> AsyncIOScheduler:
             name=source.id,
             next_run_time=datetime.now(timezone.utc),
         )
+    scheduler.add_job(
+        run_scoring,
+        trigger=CronTrigger(hour="*/2",minute=10),
+        id="agent_scoring",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_digest,
+        trigger=CronTrigger(hour=8,minute=40),
+        id="agent_digest",
+        name="digest",
+        max_instances=1,
+        coalesce=True,
+    )
     return scheduler
 
 async def main():
