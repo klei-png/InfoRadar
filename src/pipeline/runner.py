@@ -10,6 +10,7 @@ from src.config.loader import load_sources
 from src.config.resolver import enabled_sources
 from src.db.connection import get_conn, init_db
 from src.db.repository import insert_items
+from src.pipeline.embedding import embed_pending_items
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ async def run_sources(sources) -> dict:
     conn = get_conn()
     try:
         inserted = insert_items(conn,items)
+        await embed_pending_items(conn)
     finally:
         conn.close()
     logger.info("run done: fetched=%d inserted=%d", len(items), inserted)
