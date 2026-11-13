@@ -7,7 +7,7 @@ from src.llm.gateway import embed
 
 logger = logging.getLogger(__name__)
 
-def to_vector_str(vec: list[float]) -> str:
+def vector_to_str(vec: list[float]) -> str:
     return "[" + ",".join(f"{x:0.6f}" for x in vec) + "]"
 
 async def embed_pending_items(conn: psycopg.Connection, batch: int = 48) -> int:
@@ -28,7 +28,7 @@ async def embed_pending_items(conn: psycopg.Connection, batch: int = 48) -> int:
         for (item_id,_,_),vec in zip(rows,vectors):
             cursor.execute(
                 "UPDATE items SET embedding = %s::vector WHERE id=%s",
-                (to_vector_str(vec),item_id)
+                (vector_to_str(vec),item_id)
             )
     conn.commit()
     logger.info("embedding %d item(s)",len(rows))
