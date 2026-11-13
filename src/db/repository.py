@@ -4,8 +4,6 @@ from datetime import datetime, timezone
 from typing import Iterable
 import psycopg
 
-
-
 from src.models.schema import Item
 from src.pipeline.dedup import url_hash as gen_url_hash, simhash64
 
@@ -209,3 +207,24 @@ def list_scored_items(conn: psycopg.Connection,category: str|None = None,
     with conn.cursor() as cursor:
         cursor.execute(sql,(min_score,category,category,limit,offset))
         return [dict(zip([d[0] for d in cursor.description],row)) for row in cursor.fetchall()]
+
+def semantic_search(conn:psycopg.Connection,query_vec:str,
+                    limit:int=8,min_similarity:float=0.30,
+                    category: str|None = None) -> list[dict]:
+    """ pgvector cosine similarity search"""
+    sql = """
+        SELECT * FROM (
+            SELECT i.id,i.category,i.title,i.snippet,i.url,
+                    1-(i.embedding <=> %s::vector) AS similarity
+            FROM items i
+            WHERE i.embedding IS NOT NULL
+                AND (%s::text IS NULL OR i.category = %s)
+        ) t
+        WHERE t.similarity >= %s
+        ORDER BY t.similarity DESC
+        LIMIT %s
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql,(query_vec,category,category,min_similarity,limit))
+        columns = [d[0] for d in cursor.description]
+        return [dict(zip(columns,row)) for row in cursor.fetchall()]
