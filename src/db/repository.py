@@ -3,8 +3,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Iterable
 import psycopg
-from litellm.integrations.zerobus import row
-from psycopg import sql
+
+
 
 from src.models.schema import Item
 from src.pipeline.dedup import url_hash as gen_url_hash, simhash64
@@ -69,7 +69,7 @@ def fetch_candidates_for_agent(conn: psycopg.Connection, limit: int = 80) -> lis
 
 
 def record_feedback(conn: psycopg.Connection, item_id: int | None,
-                    digest_id: int | None, rating: int,
+                    digest_id: int | None = None, rating: int = 0,
                     comment: str | None = None,
                     prompt_version: str | None = None):
     sql = """
@@ -160,7 +160,7 @@ def save_digest(conn: psycopg.Connection, date, category: str,
 
 def mark_items_status(conn: psycopg.Connection, item_ids: list[int], status: str):
     sql = """
-        UPDATE items SET status = %s WHERE id = ANY(%S)
+        UPDATE items SET status = %s WHERE id = ANY(%s)
     """
     with conn.cursor() as cursor:
         cursor.execute(sql, (status, item_ids))
@@ -177,7 +177,7 @@ def list_recent_digests(conn: psycopg.Connection, days: int = 7) -> list[dict]:
     """
     with conn.cursor() as cursor:
         cursor.execute(sql, (str(days),))
-        res = [dict(zip([d[0] for d in cursor.description]), row) for row in cursor.fetchall()]
+        res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
         return res
 
 
@@ -208,4 +208,4 @@ def list_scored_items(conn: psycopg.Connection,category: str|None = None,
     """
     with conn.cursor() as cursor:
         cursor.execute(sql,(min_score,category,category,limit,offset))
-        return [dict(zip([d[0] for d in cursor.description]),row) for row in cursor.fetchall()]
+        return [dict(zip([d[0] for d in cursor.description],row)) for row in cursor.fetchall()]

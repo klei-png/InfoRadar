@@ -11,6 +11,7 @@ import litellm
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = os.environ.get("LLM_MODEL","openai/glm-4-air")
+DEFAULT_EMBEL_MODEL = os.environ.get("EMBEDDING_MODEL","openai/embedding-3")
 
 class LLMError(Exception):
     """LLM gateway common error: retries exhausted or configuration missing"""
@@ -95,6 +96,18 @@ async def chat_with_meta(
             await asyncio.sleep(wait)
     raise LLMError(f"chat failed after {max_retries} retries: {last_exc}") from last_exc
 
-
-
+async def embed(texts: list[str], model: str | None = None) -> list[list[float]]:
+    """ batch vectorization"""
+    model = model or DEFAULT_EMBEL_MODEL
+    last_exc: Exception | None = None
+    for attempt in range(1,4):
+        try:
+            resp = await litellm.aembedding(model=model,input=texts)
+            return [d["embedding"] for d in resp.data]
+        except BadRequestError as e:
+            raise LLMError(f"embed rejected:{e}") from e
+        except Exception as e:
+            last_exc = e
+            await asyncio.sleep(2 ** attempt)
+    raise LLMError(f"embed failed after 3 retries: {last_exc}") from last_exc
 
