@@ -7,21 +7,14 @@ from datetime import datetime
 from src.db.connection import get_conn
 from src.db.repository import fetch_top_item,save_digest
 from src.llm.gateway import chat_with_meta,LLMError
+from src.prompts.registry import get_prompt
 
 logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "digest-v1"
 MIN_ITEMS = 3
 
-DIGEST_SYSTEM = """
-你是资讯编辑，把同一领域一天内的多条信息整合成一份简报。
-要求：
-1. 用 Markdown，开头一段 2-3 句的"今日综述"，概括整体动向
-2. 按主题分节，重要事件在前；同一事件的多条信息合并为一条，不要重复
-3. 每条信息末尾用 [编号] 标注来源条目编号
-4. 语言精炼，总长度控制在 500 字以内
-5. 直接输出正文，不要任何前后缀说明
-"""
+DIGEST_SYSTEM = get_prompt("digest")
 
 def _render_items(items: list[dict]) -> str:
     lines = []
@@ -41,7 +34,7 @@ async def generate_one(category: str,items: list[dict],date) -> dict:
         f"{_render_items(items)}"
     )
     content, meta = await chat_with_meta(
-        [{"role": "system", "content": DIGEST_SYSTEM},
+        [{"role": "system", "content": DIGEST_SYSTEM.system},
          {"role": "user","content":user}],
         temperature=0.3,
     )
@@ -51,6 +44,35 @@ async def generate_one(category: str,items: list[dict],date) -> dict:
         "item_count":len(items),
         "cost_tokens":meta["prompt_tokens"]+meta["completion_tokens"],
     }
+
+async def generate_safe(category: str,items: list[dict], date) -> dict | None:
+    """ generate briefings;if rejected by content review,split in half recursively
+        and isolate toxic entries."""
+    try:
+        return await generate_one(category,items,date)
+    except LLMError as e:
+        if "rejected" not in str(e):
+            raise
+
+        if len(items) == 1:
+            logger.warning("moderation-blocked item %s excluded from digest: %s",
+                           items[0]["id"],items[0]["title"][:50])
+            return None
+        mid = len(items) // 2
+        logger.info("digest rejected (%d items), splitting: %s",
+                    len(items),category)
+        left = await generate_safe(category,items[:mid],date)
+        right = await generate_safe(category,items[mid:],date)
+        parts = [p for p in (left,right) if p]
+        if not parts:
+            return None
+        return {
+            "category": category,
+            "content_md": "\n\n".join(p["content_md"] for p in parts),
+            "item_count": sum(p["item_count"] for p in parts),
+            "cost_tokens": sum(p["cost_tokens"] for p in parts),
+        }
+
 
 async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
     conn = get_conn()
@@ -75,7 +97,7 @@ async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
                 logger.info("skip %s: only %d item(s)",category,len(group))
                 continue
             try:
-                d = await generate_one(category,group,today)
+                d = await generate_safe(category,group,today)
                 save_digest(conn,today,d["category"],d["content_md"],
                             d["item_count"],d["cost_tokens"],PROMPT_VERSION)
                 logger.info("digest saved: %s (%d items, %d tokens)",
@@ -87,6 +109,7 @@ async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
         conn.close()
     logger.info("digest run done: %d produced", produced)
     return {"digests": produced}
+
 
 
 if __name__ == "__main__":

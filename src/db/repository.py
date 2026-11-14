@@ -66,7 +66,7 @@ def fetch_candidates_for_agent(conn: psycopg.Connection, limit: int = 80) -> lis
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def record_feedback(conn: psycopg.Connection, item_id: int | None,
+def record_feedback(conn: psycopg.Connection, item_id: int | None = None,
                     digest_id: int | None = None, rating: int = 0,
                     comment: str | None = None,
                     prompt_version: str | None = None):

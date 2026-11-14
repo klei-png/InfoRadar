@@ -7,23 +7,13 @@ import re
 from src.db.connection import get_conn
 from src.db.repository import fetch_candidates_for_agent, save_scores, mark_items_status
 from src.llm.gateway import chat, LLMError
+from src.prompts.registry import get_prompt,prompt_version
 
 logger = logging.getLogger(__name__)
 blocked: list[int] = []
 
-PROMPT_VERSION = "scorer -v1"
-SYSTEM_PROMPT = """你是信息质量评估员，评估一条信息对追踪其所属领域动态的价值。
-评分维度：
-1. 主题相关性：是否真实属于所给分类的核心话题
-2. 信息增量：是否有新事实/新发布/新数据，还是营销软文、内容农场、商品页
-3. 时效性：是否是新发生的事件
-
-评分标准（0-10 整数）：
-- 9-10：权威来源的重大新事件/新发布
-- 7-8：有实质信息增量的正常新闻
-- 4-6：相关但信息量有限
-- 1-3：相关性弱、软文或低质内容
-只输出 JSON：{"score": 整数, "reason": "不超过50字的理由"}"""
+SYSTEM_PROMPT = get_prompt("scorer")
+PROMPT_VERSION = prompt_version("scorer")
 
 _JSON_RE = re.compile(r"\{.*\}",re.DOTALL) # possible bug: if multiple '{' appear
 
@@ -48,7 +38,7 @@ async def score_item(item: dict) -> dict | None:
         f"URL：{item['url']}"
     )
     resp = await chat(
-        [{"role": "system", "content": SYSTEM_PROMPT},
+        [{"role": "system", "content": SYSTEM_PROMPT.system},
          {"role":"user","content":user}],
         json_mode=True
     )

@@ -9,6 +9,7 @@ from src.db.connection import get_conn
 from src.db.repository import (list_recent_digests,get_latest_digest,list_scored_items,
                                record_feedback,semantic_search)
 from src.pipeline.embedding import vector_to_str
+from src.prompts.registry import get_prompt
 
 app = FastAPI(title="InforRadar",version="0.1.0",
               description="Inforadar")
@@ -49,7 +50,7 @@ def digest_by_category(category:str):
 def items(category: str | None = None,
           min_score: int = Query(1,ge=0,le=10),
           limit: int = Query(50,ge=1,le=200),
-          offset: int = Query(1,ge=0)):
+          offset: int = Query(0,ge=0)):
     """"""
     conn = get_conn()
     try:
@@ -77,13 +78,6 @@ def feedback(body: FeedbackIn):
     return {"ok":True}
 
 
-ASK_SYSTEM = """
-你是信息助手，基于用户信息库中检索到的条目回答问题。
-要求：
-1. 只使用提供的条目内容回答，不要编造；条目不足以回答时直接说"库中没有足够信息"
-2. 每条结论后用 [编号] 标注来源条目
-3. 中文回答，简洁准确，200 字以内
-"""
 class AskIn(BaseModel):
     question: str = Field(min_length=2,max_length=500)
     category: str | None = None
@@ -115,7 +109,7 @@ async def ask(body:AskIn):
     )
     try:
         answer,meta = await chat_with_meta(
-            [{"role":"system","content":ASK_SYSTEM},
+            [{"role":"system","content":get_prompt("ask").system},
              {"role":"user","content":f"条目:\n{context}\n\n问题:{body.question}"}],
             temperature=0.1,
         )
