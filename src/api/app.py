@@ -1,5 +1,8 @@
 from fastapi import FastAPI,HTTPException,Query
 from pydantic import BaseModel,Field
+from datetime import datetime
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
 
 from src.llm.gateway import chat_with_meta,embed,LLMError
 from src.db.connection import get_conn
@@ -84,6 +87,7 @@ ASK_SYSTEM = """
 class AskIn(BaseModel):
     question: str = Field(min_length=2,max_length=500)
     category: str | None = None
+    since: datetime | None = None
     top_k: int = Field(8,ge=1,le=20)
 
 @app.post("/ask")
@@ -97,7 +101,8 @@ async def ask(body:AskIn):
     conn = get_conn()
     try:
         hits = semantic_search(conn,vector_to_str(question_vec),
-                               limit=body.top_k,category=body.category)
+                               limit=body.top_k,category=body.category,
+                               since=body.since)
     finally:
         conn.close()
 
@@ -119,7 +124,9 @@ async def ask(body:AskIn):
 
     return {
         "answer":answer,
-        "sources": [{"id": h["id"], "title": h["title"], "url": h["url"],
+        "sources": [{"id": h["id"], "title": h["title"], "url": h["url"],"published_at":h["published_at"],
                      "similarity": round(h["similarity"], 3)} for h in hits],
         "usage":meta,
     }
+
+app.mount("/",StaticFiles(directory=Path(__file__).resolve().parents[2] / "frontend",html=True),name="static")

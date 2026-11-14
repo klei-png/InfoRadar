@@ -210,21 +210,23 @@ def list_scored_items(conn: psycopg.Connection,category: str|None = None,
 
 def semantic_search(conn:psycopg.Connection,query_vec:str,
                     limit:int=8,min_similarity:float=0.30,
-                    category: str|None = None) -> list[dict]:
+                    category: str|None = None,since:datetime|None = None) -> list[dict]:
     """ pgvector cosine similarity search"""
     sql = """
         SELECT * FROM (
-            SELECT i.id,i.category,i.title,i.snippet,i.url,
+            SELECT i.id,i.category,i.title,i.snippet,i.url,i.published_at,
                     1-(i.embedding <=> %s::vector) AS similarity
             FROM items i
             WHERE i.embedding IS NOT NULL
                 AND (%s::text IS NULL OR i.category = %s)
+                AND (%s::timestamptz IS NULL OR i.published_at >= %s)
         ) t
         WHERE t.similarity >= %s
         ORDER BY t.similarity DESC
         LIMIT %s
     """
     with conn.cursor() as cursor:
-        cursor.execute(sql,(query_vec,category,category,min_similarity,limit))
+        cursor.execute(sql,(query_vec,category,category,
+                            since,since,min_similarity,limit))
         columns = [d[0] for d in cursor.description]
         return [dict(zip(columns,row)) for row in cursor.fetchall()]
