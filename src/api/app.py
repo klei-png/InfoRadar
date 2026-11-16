@@ -1,18 +1,43 @@
-from fastapi import FastAPI,HTTPException,Query
+from fastapi import FastAPI,HTTPException,Query,Depends
 from pydantic import BaseModel,Field
 from datetime import datetime
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
+from api.auth import AUTH_PASSWORD
 from src.llm.gateway import chat_with_meta,embed,LLMError
 from src.db.connection import get_conn
 from src.db.repository import (list_recent_digests,get_latest_digest,list_scored_items,
                                record_feedback,semantic_search)
 from src.pipeline.embedding import vector_to_str
 from src.prompts.registry import get_prompt
+from src.api.auth import require_auth,auth_enabled,create_token
+
+
+
 
 app = FastAPI(title="InforRadar",version="0.1.0",
               description="Inforadar")
+
+class LoginIn(BaseModel):
+    password: str
+
+
+class AskIn(BaseModel):
+    question: str = Field(min_length=2,max_length=500)
+    category: str | None = None
+    since: datetime | None = None
+    top_k: int = Field(8,ge=1,le=20)
+
+
+@app.post("/login")
+def login(body: LoginIn):
+    if not auth_enabled():
+        return {"token":"no-auth"}
+    if body.password != AUTH_PASSWORD:
+        raise HTTPException(401,"password error")
+    return {"token": create_token()}
+
 
 @app.get("/health")
 def health():
@@ -26,7 +51,7 @@ def health():
     return {"status":"ok"}
 
 @app.get("/digests")
-def digests(days: int = Query(7,ge=1,le=90)):
+def digests(days: int = Query(7,ge=1,le=90),_:None = Depends(require_auth())):
     """ the briefing list for the past N days"""
     conn = get_conn()
     try:
@@ -50,7 +75,8 @@ def digest_by_category(category:str):
 def items(category: str | None = None,
           min_score: int = Query(1,ge=0,le=10),
           limit: int = Query(50,ge=1,le=200),
-          offset: int = Query(0,ge=0)):
+          offset: int = Query(0,ge=0),
+          _:None = Depends(require_auth())):
     """"""
     conn = get_conn()
     try:
@@ -66,7 +92,7 @@ class FeedbackIn(BaseModel):
     comment: str|None = None
 
 @app.post("/feedback",status_code=201)
-def feedback(body: FeedbackIn):
+def feedback(body: FeedbackIn,_:None = Depends(require_auth())):
     """ record user feedback on entries"""
     if body.rating not in (-1,0,1):
         raise HTTPException(422,"rating must be one of -1/0/1")
@@ -78,14 +104,8 @@ def feedback(body: FeedbackIn):
     return {"ok":True}
 
 
-class AskIn(BaseModel):
-    question: str = Field(min_length=2,max_length=500)
-    category: str | None = None
-    since: datetime | None = None
-    top_k: int = Field(8,ge=1,le=20)
-
 @app.post("/ask")
-async def ask(body:AskIn):
+async def ask(body:AskIn,_:None = Depends(require_auth())):
     """ RAG Q&A: vector retrieval + cite-aware generation"""
     try:
         question_vec = (await embed([body.question]))[0]

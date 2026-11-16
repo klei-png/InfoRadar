@@ -65,6 +65,16 @@ def fetch_candidates_for_agent(conn: psycopg.Connection, limit: int = 80) -> lis
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+def fetch_items_by_ids(conn: psycopg.Connection, ids) -> list[dict]:
+    sql = """
+        SELECT id,source_id,title,snippet,url,category,published_at
+        FROM items
+        WHERE id=ANY(%s)
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql,(ids,))
+        columns = [d[0] for d in cursor.description]
+        return [dict(zip(columns,row)) for row in cursor.fetchall()]
 
 def record_feedback(conn: psycopg.Connection, item_id: int | None = None,
                     digest_id: int | None = None, rating: int = 0,

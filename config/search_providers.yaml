@@ -1,6 +1,6 @@
 providers:
   tavily:
-    api_key: ""
+    api_key: "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"
     endpoint: "https://api.tavily.com/search"
     depth: "basic"
     timeout_s: 30
