@@ -240,3 +240,46 @@ def semantic_search(conn:psycopg.Connection,query_vec:str,
                             since,since,min_similarity,limit))
         columns = [d[0] for d in cursor.description]
         return [dict(zip(columns,row)) for row in cursor.fetchall()]
+
+
+# ---------- 用户 ----------
+
+def ensure_user_table(conn: psycopg.Connection):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(64) UNIQUE NOT NULL,
+                password_hash VARCHAR(256) NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+        """)
+    conn.commit()
+
+def count_users(conn: psycopg.Connection) -> int:
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM users")
+        return cursor.fetchone()[0]
+
+def create_user(conn: psycopg.Connection, username: str, password: str) -> int:
+    """密码经 PBKDF2 哈希后入库，明文不落库"""
+    from src.api.auth import hash_password
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id",
+            (username, hash_password(password)),
+        )
+        uid = cursor.fetchone()[0]
+    conn.commit()
+    return uid
+
+def get_user_by_username(conn: psycopg.Connection, username: str) -> dict | None:
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT id, username, password_hash FROM users WHERE username = %s",
+            (username,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "username": row[1], "password_hash": row[2]}

@@ -20,7 +20,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: backend/Dockerfile   # 构建上下文是项目根（要同时拿 frontend/ 和 backend/）
+      dockerfile: backend/Dockerfile
     container_name: inforradar_app
     restart: always
     env_file: backend/.env

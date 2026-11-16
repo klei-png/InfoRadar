@@ -7,10 +7,10 @@ from fastapi.staticfiles import StaticFiles
 from src.llm.gateway import chat_with_meta,embed,LLMError
 from src.db.connection import get_conn
 from src.db.repository import (list_recent_digests,get_latest_digest,list_scored_items,
-                               record_feedback,semantic_search)
+                               record_feedback,semantic_search,get_user_by_username)
 from src.pipeline.embedding import vector_to_str
 from src.prompts.registry import get_prompt
-from src.api.auth import require_auth,auth_enabled,create_token
+from src.api.auth import require_auth,auth_enabled,create_token,verify_password
 
 
 
@@ -19,6 +19,7 @@ app = FastAPI(title="InforRadar",version="0.1.0",
               description="Inforadar")
 
 class LoginIn(BaseModel):
+    username: str = "admin"
     password: str
 
 
@@ -33,9 +34,14 @@ class AskIn(BaseModel):
 def login(body: LoginIn):
     if not auth_enabled():
         return {"token":"no-auth"}
-    if body.password != AUTH_PASSWORD:
-        raise HTTPException(401,"password error")
-    return {"token": create_token()}
+    conn = get_conn()
+    try:
+        user = get_user_by_username(conn, body.username)
+    finally:
+        conn.close()
+    if user is None or not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(401,"用户名或密码错误")
+    return {"token": create_token(body.username)}
 
 
 @app.get("/health")
