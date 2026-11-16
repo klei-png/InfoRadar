@@ -5,7 +5,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: root
-      POSTGRES_PASSWORD: 123456
+      POSTGRES_PASSWORD: "123456"
       POSTGRES_DB: inforadar
     ports:
       - "5432:5432"
@@ -18,10 +18,16 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: backend/Dockerfile   # 构建上下文是项目根（要同时拿 frontend/ 和 backend/）
     container_name: inforradar_app
     restart: always
-    env_file: .env
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql://root:123456@db:5432/inforadar
+    ports:
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy

@@ -4,7 +4,6 @@ from datetime import datetime
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
-from api.auth import AUTH_PASSWORD
 from src.llm.gateway import chat_with_meta,embed,LLMError
 from src.db.connection import get_conn
 from src.db.repository import (list_recent_digests,get_latest_digest,list_scored_items,
@@ -51,7 +50,7 @@ def health():
     return {"status":"ok"}
 
 @app.get("/digests")
-def digests(days: int = Query(7,ge=1,le=90),_:None = Depends(require_auth())):
+def digests(days: int = Query(7,ge=1,le=90),_:None = Depends(require_auth)):
     """ the briefing list for the past N days"""
     conn = get_conn()
     try:
@@ -76,7 +75,7 @@ def items(category: str | None = None,
           min_score: int = Query(1,ge=0,le=10),
           limit: int = Query(50,ge=1,le=200),
           offset: int = Query(0,ge=0),
-          _:None = Depends(require_auth())):
+          _:None = Depends(require_auth)):
     """"""
     conn = get_conn()
     try:
@@ -92,7 +91,7 @@ class FeedbackIn(BaseModel):
     comment: str|None = None
 
 @app.post("/feedback",status_code=201)
-def feedback(body: FeedbackIn,_:None = Depends(require_auth())):
+def feedback(body: FeedbackIn,_:None = Depends(require_auth)):
     """ record user feedback on entries"""
     if body.rating not in (-1,0,1):
         raise HTTPException(422,"rating must be one of -1/0/1")
@@ -105,7 +104,7 @@ def feedback(body: FeedbackIn,_:None = Depends(require_auth())):
 
 
 @app.post("/ask")
-async def ask(body:AskIn,_:None = Depends(require_auth())):
+async def ask(body:AskIn,_:None = Depends(require_auth)):
     """ RAG Q&A: vector retrieval + cite-aware generation"""
     try:
         question_vec = (await embed([body.question]))[0]
@@ -143,4 +142,6 @@ async def ask(body:AskIn,_:None = Depends(require_auth())):
         "usage":meta,
     }
 
-app.mount("/",StaticFiles(directory=Path(__file__).resolve().parents[2] / "frontend",html=True),name="static")
+# 构建产物目录：本地 = 项目根/frontend/dist，容器 = /frontend/dist
+app.mount("/",StaticFiles(directory=Path(__file__).resolve().parents[3] / "frontend" / "dist",
+                          html=True,check_dir=False),name="static")
