@@ -1,37 +1,28 @@
-from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from __future__ import annotations
 
-@dataclass(frozen=True)
-class Tool:
-    """a capability unit that agent can call """
-    name: str
+from typing import Any, Awaitable, Callable, Literal
+from pydantic import BaseModel, Field
+
+class ToolDefinition(BaseModel):
+    name: str = Field(pattern=r"^[a-z_]{3,32}$")
     description: str
-    parameters: dict[str, Any]
-    handler: Callable[...,Awaitable[Any]]
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any] | None = None
+    permission: Literal["read","write","dangerous"] = "read"
+    timeout: float = 20.0
+    side_effect: bool = False
+    recovery_strategy: Literal["idempotency_key","business_deduplication","manual"] | None = None
+    output_limit: int = 8000
+    version: str = "1"
 
-_REGISTRY: dict[str, Tool] = {}
+class ToolResult(BaseModel):
+    ok: bool
+    content: str
+    error_code: str | None = None
 
-def register_tool(tool: Tool) -> Tool:
-    if tool.name in _REGISTRY:
-        raise ValueError(f"duplicate tool name: {tool.name}")
-    _REGISTRY[tool.name] = tool
-    return tool
-
-def get_tool(name: str) -> Tool:
-    if name not in _REGISTRY:
-        raise ValueError(f"unknown tool: {name!r}; known={sorted(_REGISTRY)}")
-    return _REGISTRY[name]
-
-def all_tools() -> list[Tool]:
-    return list(_REGISTRY.values())
-
-def to_openai_schema(tool:Tool) -> dict:
-    """transform open-ai function-calling format"""
-    return {
-        "type": "function",
-        "function":{
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": tool.parameters,
-        }
-    }
+class Tool:
+    """ capability unit: contract(defn)+implementation(handler).
+        the handler must be async and return a ToolResult"""
+    def __init__(self, defn: ToolDefinition, handler: Callable[...,Awaitable[ToolResult]]) -> None:
+        self.defn = defn
+        self.handler = handler
