@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import uuid4
 
-from litellm.harness import ToolCall
+
 from pydantic import BaseModel, Field
 
 from src.agent.status import RunStatus
@@ -23,6 +23,11 @@ class Usage(BaseModel):
         self.prompt_tokens += other.prompt_tokens
         self.completion_tokens += other.completion_tokens
         self.cost_usd += other.cost_usd
+
+class ToolCall(BaseModel):
+    call_id: str
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 class Evidence(BaseModel):
     evidence_id: str
@@ -105,7 +110,7 @@ class ExecutionLedger(Protocol):
     async def complete_execution(self, execution_id: int, status: Literal["succeeded","failed","unknown"],
                                  result_digest: str | None) -> None: ...
     async def mark_unknown(self, execution_id: int) -> None: ...
-    async def get_execution(self, run_id: str,item_key: str) -> dict[str, Any] | None: ...
+    async def get_execution(self, run_id: str,idem_key: str) -> dict[str, Any] | None: ...
 
 @runtime_checkable
 class RunStore(Protocol):
