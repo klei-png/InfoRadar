@@ -4,7 +4,7 @@ from datetime import datetime,timezone
 from enum import Enum
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import uuid4
-
+from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
@@ -95,7 +95,22 @@ class Event(BaseModel):
     ts: datetime = Field(default_factory=utcnow)
     data: dict[str, Any] = Field(default_factory=dict)
 
+#------------run context / model config----------
 
+@dataclass
+class RunContext:
+    """ each run has its own independent execution context(isolation principle:runtime can be reused,
+     Context is independent). ToolExecutor will inject it into tools that declare _ctx parameter"""
+    run_id: str
+    state: RunState
+    store: Any | None = None
+
+@dataclass
+class ModelConfig:
+    model: str | None = None
+    temperature: float = 0.2
+    max_tokens: int | None = None
+    max_retries: int = 3
 
 #---------persistence protocol----------
 @runtime_checkable

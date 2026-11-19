@@ -15,7 +15,7 @@ async def query_candidates(category: str|None = None, limit: int = 20) -> ToolRe
     finally:
         conn.close()
 
-default_registry(Tool(
+default_registry.register(Tool(
     defn=ToolDefinition(
     name="query_candidates",
     description="查询最近24小时内抓取的待处理信息条目，可按分类过滤",
