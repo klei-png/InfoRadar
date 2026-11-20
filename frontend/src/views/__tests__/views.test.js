@@ -11,6 +11,16 @@ vi.mock('../../api/items', () => ({
   deleteItem: (...args) => deleteItemMock(...args),
 }))
 
+const digestListMock = vi.fn()
+const digestDetailMock = vi.fn()
+const generateDigestMock = vi.fn()
+vi.mock('../../api/digests', () => ({
+  digestList: (...args) => digestListMock(...args),
+  digestDetail: (...args) => digestDetailMock(...args),
+  generateDigest: (...args) => generateDigestMock(...args),
+}))
+
+import DigestsView from '../DigestsView.vue'
 import FeedView from '../FeedView.vue'
 import NotFoundView from '../NotFoundView.vue'
 
@@ -143,6 +153,85 @@ describe('FeedView 接线', () => {
 
     expect(wrapper.findAll('.card')).toHaveLength(1) // 卡片保留
     expect(wrapper.text()).toContain('删除失败')
+  })
+})
+
+describe('DigestsView 接线', () => {
+  const sampleDigest = {
+    id: 11,
+    category: 'ai',
+    date: '2026-11-20',
+    item_count: 5,
+    cost_tokens: 1200,
+    preview: '摘要预览',
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    digestListMock.mockReset()
+    digestDetailMock.mockReset()
+    generateDigestMock.mockReset()
+  })
+
+  it('加载成功：渲染批次卡片（id 主键 + 元信息）', async () => {
+    digestListMock.mockResolvedValue([sampleDigest])
+    const wrapper = mount(DigestsView)
+    await flushPromises()
+
+    expect(digestListMock).toHaveBeenCalledWith(7)
+    const cards = wrapper.findAll('.card')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].text()).toContain('ai')
+    expect(cards[0].text()).toContain('2026-11-20 · 5 条信息 · 1200 tokens')
+  })
+
+  it('查看全文：按 id 请求并渲染 Markdown 内容', async () => {
+    digestListMock.mockResolvedValue([{ ...sampleDigest }])
+    digestDetailMock.mockResolvedValue({ content_md: '# 标题\n- 要点一' })
+    const wrapper = mount(DigestsView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === '查看全文').trigger('click')
+    await flushPromises()
+    expect(digestDetailMock).toHaveBeenCalledWith(11)
+    expect(wrapper.find('.md-content').exists()).toBe(true)
+  })
+
+  it('生成最新简报：成功后提示并刷新列表', async () => {
+    digestListMock
+      .mockResolvedValueOnce([sampleDigest])
+      .mockResolvedValueOnce([sampleDigest, { ...sampleDigest, id: 12, date: '2026-11-21' }])
+    generateDigestMock.mockResolvedValue({ id: 12 })
+    const wrapper = mount(DigestsView)
+    await flushPromises()
+    expect(wrapper.findAll('.card')).toHaveLength(1)
+
+    const genBtn = wrapper.findAll('button').find((b) => b.text() === '生成最新简报')
+    await genBtn.trigger('click')
+    await flushPromises()
+
+    expect(generateDigestMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('已生成最新简报')
+    expect(wrapper.findAll('.card')).toHaveLength(2) // 列表已刷新
+    expect(digestListMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('生成中按钮禁用，409 互斥提示且不刷新列表', async () => {
+    digestListMock.mockResolvedValue([sampleDigest])
+    generateDigestMock.mockRejectedValue(new Error('已有生成任务进行中，请稍后'))
+    const wrapper = mount(DigestsView)
+    await flushPromises()
+
+    const genBtn = wrapper.findAll('button').find((b) => b.text() === '生成最新简报')
+    await genBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已有生成任务进行中，请稍后')
+    expect(wrapper.text()).not.toContain('已生成最新简报')
+    expect(digestListMock).toHaveBeenCalledTimes(1) // 未刷新
+    // 按钮恢复可点
+    expect(wrapper.findAll('button').find((b) => b.text() === '生成最新简报')).toBeDefined()
   })
 })
 
