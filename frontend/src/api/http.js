@@ -35,7 +35,10 @@ function buildURL(path) {
   return base + path
 }
 
-export async function request(path, { method = 'GET', body, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export async function request(
+  path,
+  { method = 'GET', body, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}
+) {
   // 取消合并：外部已 aborted 时立即取消
   const controller = new AbortController()
   let timedOut = false

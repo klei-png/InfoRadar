@@ -1,11 +1,10 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { getToken } from '../api/client'
+import { useAuthStore } from '../stores/auth'
 
 const routes = [
   { path: '/login', component: () => import('../views/LoginView.vue') },
   { path: '/', component: () => import('../views/DigestsView.vue') },
   { path: '/feed', component: () => import('../views/FeedView.vue') },
-  { path: '/ask', component: () => import('../views/AskView.vue') },
 ]
 
 export const router = createRouter({
@@ -13,7 +12,15 @@ export const router = createRouter({
   routes,
 })
 
-// 登录守卫：无 token 一律踢到登录页
+// 登录守卫（读 auth store，§3.5）：
+// - 未登录访问受保护页 → 跳 /login 并以 redirect 记录原目标页
+// - 已登录访问 /login → 跳首页
 router.beforeEach((to) => {
-  if (to.path !== '/login' && !getToken()) return '/login'
+  const auth = useAuthStore()
+  if (to.path === '/login') {
+    return auth.isLoggedIn ? '/' : true
+  }
+  if (!auth.isLoggedIn) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
 })

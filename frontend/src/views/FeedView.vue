@@ -13,17 +13,12 @@
     <div class="snippet">
       {{ it.snippet }}
     </div>
-    <div>
-      <button class="fb" @click="rate(it, 1)">👍 有用</button>
-      <button class="fb" @click="rate(it, -1)">👎 没用</button>
-      <span class="fb-ok">{{ it.fbMsg }}</span>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from '../api/client'
+import { items as fetchItems } from '../api/items'
 
 const items = ref([])
 const loading = ref(true)
@@ -31,16 +26,7 @@ const loading = ref(true)
 const fmtTime = (t) => (t ? String(t).slice(0, 16).replace('T', ' ') : '时间未知')
 
 onMounted(async () => {
-  items.value = await api.items(6, 30)
+  items.value = await fetchItems(6, 30)
   loading.value = false
 })
-
-async function rate(it, rating) {
-  try {
-    await api.feedback(it.id, rating)
-    it.fbMsg = '已记录 ✓'
-  } catch {
-    it.fbMsg = '提交失败'
-  }
-}
 </script>

@@ -103,7 +103,9 @@ describe('request 错误处理', () => {
   it('500 + 统一错误结构 → ApiError 携带后端 message', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(jsonResponse(500, { error: { code: 'X', message: '服务器开小差' } })))
+      vi.fn(() =>
+        Promise.resolve(jsonResponse(500, { error: { code: 'X', message: '服务器开小差' } }))
+      )
     )
     const err = await request('/items').catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
@@ -113,7 +115,10 @@ describe('request 错误处理', () => {
   })
 
   it('500 + FastAPI detail 结构 → 兼容解包', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(422, { detail: '参数不合法' }))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse(422, { detail: '参数不合法' })))
+    )
     const err = await request('/items').catch((e) => e)
     expect(err.status).toBe(422)
     expect(err.message).toBe('参数不合法')
@@ -122,9 +127,14 @@ describe('request 错误处理', () => {
   it('超时 → ApiError(0) 超时提示', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((_url, init) => new Promise((_resolve, reject) => {
-        init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
-      }))
+      vi.fn(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError'))
+            )
+          })
+      )
     )
     const err = await request('/items', { timeoutMs: 10 }).catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
@@ -135,13 +145,20 @@ describe('request 错误处理', () => {
   it('外部 signal 取消 → 原样抛出 AbortError（非 ApiError）', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((_url, init) => new Promise((_resolve, reject) => {
-        init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
-      }))
+      vi.fn(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError'))
+            )
+          })
+      )
     )
     const controller = new AbortController()
     setTimeout(() => controller.abort(), 5)
-    await expect(request('/items', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(request('/items', { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    })
   })
 
   it('外部 signal 已 aborted → 立即取消不发请求', async () => {
@@ -149,7 +166,9 @@ describe('request 错误处理', () => {
     vi.stubGlobal('fetch', fetchMock)
     const controller = new AbortController()
     controller.abort()
-    await expect(request('/items', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(request('/items', { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
@@ -170,7 +189,10 @@ describe('401 分流', () => {
     auth.setToken('expired')
     const onUnauthorized = vi.fn()
     setUnauthorizedHandler(onUnauthorized)
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(401, {}))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse(401, {})))
+    )
 
     const err = await request('/digests').catch((e) => e)
     expect(err.status).toBe(401)
@@ -184,7 +206,10 @@ describe('401 分流', () => {
     auth.setToken('stale-but-keep')
     const onUnauthorized = vi.fn()
     setUnauthorizedHandler(onUnauthorized)
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(401, { detail: 'Login failed' }))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse(401, { detail: 'Login failed' })))
+    )
 
     const err = await request('/login', { method: 'POST', body: {} }).catch((e) => e)
     expect(err.status).toBe(401)
@@ -196,7 +221,10 @@ describe('401 分流', () => {
   it('403 → 抛 ApiError 但不清 token', async () => {
     const auth = useAuthStore()
     auth.setToken('valid')
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(403, {}))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse(403, {})))
+    )
 
     const err = await request('/admin').catch((e) => e)
     expect(err.status).toBe(403)

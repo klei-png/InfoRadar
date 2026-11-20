@@ -16,13 +16,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from '../api/client'
+import { digestList, digestDetail } from '../api/digests'
 
 const list = ref([])
 const loading = ref(true)
 
 onMounted(async () => {
-  list.value = await api.digests(7)
+  list.value = await digestList(7)
   loading.value = false
 })
 
@@ -31,7 +31,7 @@ async function expand(d) {
     d.full = ''
     return
   }
-  const full = await api.digestFull(d.category)
+  const full = await digestDetail(d.category)
   d.full = full.content_md
 }
 </script>
