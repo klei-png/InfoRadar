@@ -12,7 +12,8 @@
           {{ d.full ? '收起' : '查看全文' }}
         </button>
       </div>
-      <pre v-if="d.full" class="md">{{ d.full }}</pre>
+      <!-- eslint-disable-next-line vue/no-v-html -- 内容经 renderMarkdown 白名单渲染，已整体转义（D5） -->
+      <div v-if="d.full" class="md-content" v-html="renderMarkdown(d.full)"></div>
       <div v-else class="snippet">{{ d.preview }}…</div>
     </div>
   </template>
@@ -22,6 +23,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { digestList, digestDetail } from '../api/digests'
 import { useAsyncTask } from '../composables/useAsyncTask'
+import { renderMarkdown } from '../utils/markdown'
 import EmptyState from '../components/ui/EmptyState.vue'
 import ErrorBanner from '../components/ui/ErrorBanner.vue'
 import LoadingState from '../components/ui/LoadingState.vue'
@@ -47,3 +49,54 @@ async function expand(d) {
   }
 }
 </script>
+
+<style scoped>
+.md-content {
+  font-size: var(--font-size-md);
+  line-height: 1.7;
+}
+
+.md-content :deep(p) {
+  margin: 8px 0;
+}
+
+.md-content :deep(h3),
+.md-content :deep(h4),
+.md-content :deep(h5) {
+  margin: 14px 0 8px;
+  font-size: var(--font-size-base);
+}
+
+.md-content :deep(ul),
+.md-content :deep(ol) {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.md-content :deep(li) {
+  margin: 4px 0;
+}
+
+.md-content :deep(code) {
+  background: var(--color-hover);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  font-size: var(--font-size-sm);
+}
+
+.md-content :deep(pre) {
+  background: var(--color-hover);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.md-content :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.md-content :deep(a) {
+  color: var(--color-primary);
+}
+</style>

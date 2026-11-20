@@ -25,13 +25,6 @@
   margin-right: 6px;
 }
 
-pre.md {
-  white-space: pre-wrap;
-  font-family: inherit;
-  font-size: var(--font-size-md);
-  line-height: 1.7;
-}
-
 .item-title {
   font-size: var(--font-size-base);
   font-weight: 600;
