@@ -1,0 +1,46 @@
+<template>
+  <p v-if="loading" class="empty">加载中…</p>
+  <p v-else-if="!items.length" class="empty">暂无数据</p>
+  <div v-for="it in items" v-else :key="it.id" class="card">
+    <div class="meta">
+      <span class="badge">{{ it.category }}</span>
+      <span class="badge">评分 {{ it.model_score }}</span>
+      {{ fmtTime(it.published_at) }}
+    </div>
+    <div class="item-title">
+      <a :href="it.url" target="_blank" rel="noopener">{{ it.title }}</a>
+    </div>
+    <div class="snippet">
+      {{ it.snippet }}
+    </div>
+    <div>
+      <button class="fb" @click="rate(it, 1)">👍 有用</button>
+      <button class="fb" @click="rate(it, -1)">👎 没用</button>
+      <span class="fb-ok">{{ it.fbMsg }}</span>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { api } from '../api/client'
+
+const items = ref([])
+const loading = ref(true)
+
+const fmtTime = (t) => (t ? String(t).slice(0, 16).replace('T', ' ') : '时间未知')
+
+onMounted(async () => {
+  items.value = await api.items(6, 30)
+  loading.value = false
+})
+
+async function rate(it, rating) {
+  try {
+    await api.feedback(it.id, rating)
+    it.fbMsg = '已记录 ✓'
+  } catch {
+    it.fbMsg = '提交失败'
+  }
+}
+</script>
