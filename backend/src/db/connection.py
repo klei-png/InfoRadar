@@ -90,3 +90,10 @@ def init_db():
         cursor.execute(SCHEMA_SQL)
     conn.commit()
     conn.close()
+
+async def get_async_conn() -> psycopg.AsyncConnection:
+    """ dedicated to kernel persistence layer """
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise ValueError("DATABASE_URL environment variable is missing")
+    return await psycopg.AsyncConnection.connect(db_url,autocommit=False)
