@@ -1,6 +1,6 @@
 from fastapi import FastAPI,HTTPException,Query,Depends
 from pydantic import BaseModel,Field
-from datetime import datetime
+from datetime import datetime, date as date_cls
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
@@ -90,11 +90,12 @@ async def generate_digest(_:None = Depends(require_auth)):
     }
 
 @app.get("/digests/{category}")
-def digest_by_category(category:str):
-    """ the full text of the latest brief for the specified category"""
+def digest_by_category(category:str, date: date_cls | None = None):
+    """ full text of a brief; date (ISO YYYY-MM-DD) selects the exact day,
+        otherwise return the latest one for the category"""
     conn = get_conn()
     try:
-        d = get_latest_digest(conn,category)
+        d = get_latest_digest(conn,category,on_date=date)
     finally:
         conn.close()
     if d is None:

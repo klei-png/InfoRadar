@@ -185,7 +185,7 @@ describe('DigestsView 接线', () => {
 
     await wrapper.findAll('button').find((b) => b.text() === '查看全文').trigger('click')
     await flushPromises()
-    expect(digestDetailMock).toHaveBeenCalledWith('ai')
+    expect(digestDetailMock).toHaveBeenCalledWith('ai', '2026-11-20')
     expect(wrapper.find('.md-content').exists()).toBe(true)
   })
 

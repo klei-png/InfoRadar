@@ -129,15 +129,17 @@ def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
 
 
 def fetch_top_item(conn: psycopg.Connection, min_score: int = 7, hours: int = 24, limit: int = 200) -> list[dict]:
-    """ get the high-scoring items within the time window for the summary agent to use"""
+    """ get the high-scoring items within the time window for the summary agent to use.
+        items without published_at are excluded: digest is grouped by publish day."""
     sql = """
-        SELECT i.id,i.category,i.title,i.snippet,i.url,
+        SELECT i.id,i.category,i.title,i.snippet,i.url,i.published_at,
                 s.model_score,s.reason
         FROM items i
         JOIN item_scores s ON s.item_id = i.id
         WHERE s.model_score >= %s
             AND i.fetched_at >= NOW() - make_interval(hours => %s)
-        ORDER BY i.category, s.model_score DESC
+            AND i.published_at IS NOT NULL
+        ORDER BY i.published_at DESC
         LIMIT %s
     """
     with conn.cursor() as cursor:
@@ -176,11 +178,12 @@ def mark_items_status(conn: psycopg.Connection, item_ids: list[int], status: str
 
 
 def list_recent_digests(conn: psycopg.Connection, days: int = 7) -> list[dict]:
+    # 按「生成时间」过滤：digest 按文章发布日分组，历史文章生成的简报也应可见
     sql = """
         SELECT date,category,item_count,cost_tokens,prompt_version,
             generated_at,LEFT(content_md,120) AS preview
         FROM digests
-        WHERE date >= CURRENT_DATE - (%s || ' days')::interval
+        WHERE generated_at >= NOW() - (%s || ' days')::interval
         ORDER BY date DESC, category
     """
     with conn.cursor() as cursor:
@@ -189,14 +192,19 @@ def list_recent_digests(conn: psycopg.Connection, days: int = 7) -> list[dict]:
         return res
 
 
-def get_latest_digest(conn: psycopg.Connection, category: str) -> dict | None:
+def get_latest_digest(conn: psycopg.Connection, category: str, on_date=None) -> dict | None:
+    # 按天分组后每篇 category 都是 'all'，需支持按 date 精确定位全文
     sql = """
         SELECT date, category, content_md, item_count, generated_at
         FROM digests WHERE category = %s
-        ORDER BY date DESC LIMIT 1
     """
+    params = [category]
+    if on_date is not None:
+        sql += " AND date = %s"
+        params.append(on_date)
+    sql += " ORDER BY date DESC LIMIT 1"
     with conn.cursor() as cursor:
-        cursor.execute(sql, (category,))
+        cursor.execute(sql, params)
         row = cursor.fetchone()
         if not row:
             return None

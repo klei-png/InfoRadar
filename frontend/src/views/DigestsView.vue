@@ -61,7 +61,7 @@ async function onGenerate() {
   loadList(7) // 成功后刷新列表
 }
 
-// 旧后端按 category 取最新一篇
+// 按 category + date 精确定位全文（category 均为 all 时不能只靠分类）
 async function expand(d) {
   if (d.full) {
     d.full = ''
@@ -69,7 +69,7 @@ async function expand(d) {
   }
   expandError.value = ''
   try {
-    const full = await digestDetail(d.category)
+    const full = await digestDetail(d.category, d.date)
     d.full = full.content_md
   } catch (e) {
     expandError.value = e?.message || '加载全文失败'

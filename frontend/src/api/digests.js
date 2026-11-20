@@ -9,9 +9,10 @@ export function digestList(days = 7) {
   return request(`/digests?days=${days}`)
 }
 
-/** 取某分类最新一篇简报全文（旧后端按 category 寻址，返回含 content_md） */
-export function digestDetail(category) {
-  return request(`/digests/${category}`)
+/** 取某天某分类的简报全文（按天分组后 category 均为 all，需 date 精确定位） */
+export function digestDetail(category, date) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : ''
+  return request(`/digests/${encodeURIComponent(category)}${query}`)
 }
 
 /**
