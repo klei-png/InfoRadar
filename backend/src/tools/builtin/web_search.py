@@ -5,6 +5,7 @@ from typing import Any
 
 import aiohttp
 
+import src.search.providers
 
 from src.search.base import build_provider
 from src.tools.base import Tool, ToolDefinition, ToolResult

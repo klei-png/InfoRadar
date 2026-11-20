@@ -33,7 +33,7 @@ class SSRFBlocked(Exception):
 async def _validate_url(url: str) -> None:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
-        raise SSRFBlocked(f"schema 不允许：{parsed.scheme or '(空)'}, 仅http/https")
+        raise SSRFBlocked(f"scheme 不允许：{parsed.scheme or '(空)'}, 仅http/https")
     if not parsed.hostname:
         raise SSRFBlocked("url 缺少 hostname")
     loop = asyncio.get_running_loop()

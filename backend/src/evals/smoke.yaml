@@ -1,0 +1,28 @@
+# M1 最小评估集 — spec §8。需要真实 LLM；本地显式运行：
+#   PowerShell: $env:LLM_SMOKE="1"; uv run python -m src.evals.smoke_runner
+# 场景只用 calc 工具（确定性、无网络依赖），保证评估可重复。
+name: m1_smoke
+scenarios:
+  - id: basic_qa
+    kind: completion            # 单轮：适配器基本链路
+    prompt: "用一句话回答：1+1 等于几？只回答数字。"
+    expect:
+      content_not_empty: true
+
+  - id: tool_call_normalized
+    kind: tool_round            # 单轮：模型必须发出 tool_call 并被归一化执行
+    prompt: "请调用 calc 工具计算 12 乘 9。不要自己算。"
+    tools: ["calc"]
+    expect:
+      tool_name: calc
+      result_ok: true
+
+  - id: mini_loop
+    kind: mini_loop             # 两轮：调用→回灌→终答（M2 Loop 的前身）
+    prompt: "使用 calc 工具计算 7 加 35，然后告诉我答案是多少。"
+    tools: ["calc"]
+    max_rounds: 3
+    expect:
+      final_content_not_empty: true
+      tool_used: calc
+      usage_prompt_tokens_gt: 0
