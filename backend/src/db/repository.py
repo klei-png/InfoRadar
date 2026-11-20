@@ -128,7 +128,7 @@ def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
     return n
 
 
-def fetch_top_item(conn: psycopg.Connection, min_score: int = 7, hours: int = 24, limit: int = 60) -> list[dict]:
+def fetch_top_item(conn: psycopg.Connection, min_score: int = 7, hours: int = 24, limit: int = 200) -> list[dict]:
     """ get the high-scoring items within the time window for the summary agent to use"""
     sql = """
         SELECT i.id,i.category,i.title,i.snippet,i.url,

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "digest-v1"
 MIN_ITEMS = 3
+ITEMS_PER_DIGEST = 10  # 每批送入 LLM 的条目数：平均 10 条生成一段 summary
 
 DIGEST_SYSTEM = get_prompt("digest")
 
@@ -77,7 +78,7 @@ async def generate_safe(category: str,items: list[dict], date) -> dict | None:
 async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
     conn = get_conn()
     try:
-        items = fetch_top_item(conn,min_score=min_score,hours=hours)
+        items = fetch_top_item(conn,min_score=min_score,hours=hours,limit=200)
     finally:
         conn.close()
 
@@ -97,11 +98,30 @@ async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
                 logger.info("skip %s: only %d item(s)",category,len(group))
                 continue
             try:
-                d = await generate_safe(category,group,today)
-                save_digest(conn,today,d["category"],d["content_md"],
-                            d["item_count"],d["cost_tokens"],PROMPT_VERSION)
-                logger.info("digest saved: %s (%d items, %d tokens)",
-                            category,d["item_count"],d["cost_tokens"])
+                # 按 ITEMS_PER_DIGEST 条切块，逐批生成 summary 后拼接为当天一篇
+                chunks = [group[i:i + ITEMS_PER_DIGEST]
+                          for i in range(0, len(group), ITEMS_PER_DIGEST)]
+                parts = []
+                item_count = 0
+                cost_tokens = 0
+                for idx, chunk in enumerate(chunks, start=1):
+                    d = await generate_safe(category,chunk,today)
+                    if d is None:  # 整批被内容审核拦截
+                        continue
+                    # 多批时给每段加批次标题；单批保持原样
+                    parts.append(
+                        f"## 批次 {idx}（{d['item_count']} 条）\n\n{d['content_md']}"
+                        if len(chunks) > 1 else d["content_md"]
+                    )
+                    item_count += d["item_count"]
+                    cost_tokens += d["cost_tokens"]
+                if not parts:
+                    logger.info("digest empty after moderation: %s",category)
+                    continue
+                save_digest(conn,today,category,"\n\n".join(parts),
+                            item_count,cost_tokens,PROMPT_VERSION)
+                logger.info("digest saved: %s (%d items in %d batch(es), %d tokens)",
+                            category,item_count,len(chunks),cost_tokens)
                 produced += 1
             except LLMError as e:
                 logger.error("digest failed for %s: %s",category,e)
