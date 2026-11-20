@@ -1,4 +1,14 @@
 <template>
+  <div class="digest-toolbar">
+    <button class="fb" type="button" :disabled="generating" @click="onGenerate">
+      {{ generating ? '生成中…（约 1~3 分钟）' : '采集并生成最新简报' }}
+    </button>
+    <span v-if="generateNotice" class="gen-notice">{{ generateNotice }}</span>
+  </div>
+
+  <!-- 生成失败（含 409 已有任务进行中）：可继续浏览已有简报 -->
+  <ErrorBanner v-if="genError" :message="genError" :retryable="false" />
+
   <LoadingState v-if="loading" />
   <ErrorBanner v-else-if="listError" :message="listError" @retry="retry" />
   <EmptyState v-else-if="!list.length" text="还没有简报" />
@@ -21,7 +31,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { digestList, digestDetail } from '../api/digests'
+import { digestList, digestDetail, generateDigest } from '../api/digests'
 import { useAsyncTask } from '../composables/useAsyncTask'
 import { renderMarkdown } from '../utils/markdown'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -32,11 +42,26 @@ const listTask = useAsyncTask((_signal, days) => digestList(days))
 const { loading, error: listError, data, run: loadList, retry } = listTask
 const list = computed(() => data.value || [])
 
+// 生成任务独立于列表任务：生成期间可继续浏览已有简报
+const genTask = useAsyncTask(() => generateDigest())
+const generating = genTask.loading
+const genError = genTask.error
+const generateNotice = ref('')
+
 const expandError = ref('')
 
 onMounted(() => loadList(7))
 
-// 旧后端按 category 取最新一篇；手动生成入口待后端补 POST /digests/generate 后恢复
+async function onGenerate() {
+  generateNotice.value = ''
+  const result = await genTask.run() // 全链路 1~3 分钟，超时分级在 api 层
+  if (!result) return // 失败/被取消——错误态由 genTask 承载
+  const n = result.digests
+  generateNotice.value = n > 0 ? `已生成 ${n} 篇简报` : '本次没有可生成的新简报'
+  loadList(7) // 成功后刷新列表
+}
+
+// 旧后端按 category 取最新一篇
 async function expand(d) {
   if (d.full) {
     d.full = ''
@@ -53,6 +78,18 @@ async function expand(d) {
 </script>
 
 <style scoped>
+.digest-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.gen-notice {
+  color: var(--color-success);
+  font-size: var(--font-size-sm);
+}
+
 .md-content {
   font-size: var(--font-size-md);
   line-height: 1.7;

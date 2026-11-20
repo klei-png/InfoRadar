@@ -4,11 +4,16 @@ from datetime import datetime
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
+import asyncio
+
 from src.llm.gateway import chat_with_meta,embed,LLMError
 from src.db.connection import get_conn
 from src.db.repository import (list_recent_digests,get_latest_digest,list_scored_items,
                                record_feedback,semantic_search,get_user_by_username)
 from src.pipeline.embedding import vector_to_str
+from src.pipeline.runner import run_once
+from src.agents.scorer import run_scoring
+from src.agents.digest import run_digest
 from src.prompts.registry import get_prompt
 from src.api.auth import require_auth,auth_enabled,create_token,verify_password
 
@@ -63,6 +68,26 @@ def digests(days: int = Query(7,ge=1,le=90),_:None = Depends(require_auth)):
         return list_recent_digests(conn,days=days)
     finally:
         conn.close()
+
+
+# 手动生成互斥锁：同一时刻只允许一个全链路生成任务（并发请求返回 409）
+_generate_lock = asyncio.Lock()
+
+@app.post("/digests/generate")
+async def generate_digest(_:None = Depends(require_auth)):
+    """ manually trigger the full pipeline: fetch -> scoring -> digest (about 1~3 min)"""
+    if _generate_lock.locked():
+        raise HTTPException(409,"已有生成任务进行中，请稍后再试")
+    async with _generate_lock:
+        fetched = await run_once()                      # 采集 + 入库 + 向量化
+        scored = await run_scoring(limit=100)           # LLM 打分
+        digested = await run_digest(min_score=7, hours=24)  # 分块摘要
+    return {
+        "fetched": fetched["fetched"],
+        "inserted": fetched["inserted"],
+        "scored": scored.get("scored", 0),
+        "digests": digested["digests"],
+    }
 
 @app.get("/digests/{category}")
 def digest_by_category(category:str):

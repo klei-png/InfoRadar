@@ -196,9 +196,43 @@ describe('DigestsView 接线', () => {
 
     expect(wrapper.text()).toContain('网络错误')
     digestListMock.mockResolvedValue([sampleDigest])
-    await wrapper.find('button').trigger('click')
+    await wrapper.findAll('button').find((b) => b.text() === '重试').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('.card')).toHaveLength(1)
+  })
+
+  it('采集并生成最新简报：成功后提示并刷新列表', async () => {
+    digestListMock
+      .mockResolvedValueOnce([sampleDigest])
+      .mockResolvedValueOnce([sampleDigest, { ...sampleDigest, category: 'finance', date: '2026-11-21' }])
+    generateDigestMock.mockResolvedValue({ digests: 2 })
+    const wrapper = mount(DigestsView)
+    await flushPromises()
+    expect(wrapper.findAll('.card')).toHaveLength(1)
+
+    const genBtn = wrapper.findAll('button').find((b) => b.text() === '采集并生成最新简报')
+    await genBtn.trigger('click')
+    await flushPromises()
+
+    expect(generateDigestMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('已生成 2 篇简报')
+    expect(wrapper.findAll('.card')).toHaveLength(2) // 列表已刷新
+    expect(digestListMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('生成中按钮禁用，409 互斥提示且不刷新列表', async () => {
+    digestListMock.mockResolvedValue([sampleDigest])
+    generateDigestMock.mockRejectedValue(new Error('已有生成任务进行中，请稍后再试'))
+    const wrapper = mount(DigestsView)
+    await flushPromises()
+
+    const genBtn = wrapper.findAll('button').find((b) => b.text() === '采集并生成最新简报')
+    await genBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已有生成任务进行中，请稍后再试')
+    expect(wrapper.text()).not.toContain('已生成')
+    expect(digestListMock).toHaveBeenCalledTimes(1) // 未刷新
   })
 })
 
