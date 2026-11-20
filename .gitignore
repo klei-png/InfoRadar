@@ -31,6 +31,10 @@ ENV/
 .env
 .env.*
 
+# 前端 env 文件不含密钥（只有 API base），需要进 git
+!frontend/.env.development
+!frontend/.env.production
+
 # =========================
 # 5. 数据库与日志
 # =========================
@@ -54,3 +58,8 @@ Thumbs.db
 # =========================
 frontend/node_modules/
 frontend/dist/
+
+# =========================
+# 8. 开发文档
+# =========================
+docs/

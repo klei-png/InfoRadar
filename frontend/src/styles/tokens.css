@@ -1,0 +1,68 @@
+/* 设计变量：全项目唯一样式取值来源，组件内只引用变量、不写魔法数。
+   深色模式经 prefers-color-scheme 覆写（决策 D14：跟随系统，无手动切换）。 */
+:root {
+  /* 色彩 */
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-text: #222222;
+  --color-text-secondary: #555555;
+  --color-text-muted: #888888;
+  --color-text-faint: #999999;
+  --color-primary: #1a56db;
+  --color-primary-soft: #e8f0fe;
+  --color-on-primary: #ffffff;
+  --color-success: #22aa22;
+  --color-danger: #cc0000;
+  --color-border: #dddddd;
+  --color-input-border: #cccccc;
+  --color-hover: #f0f0f0;
+  --color-header-bg: #1a1a2e;
+  --color-on-header: #ffffff;
+  --color-header-nav-idle: #aaaaaa;
+  --color-header-nav-active-bg: #2a2a4a;
+
+  /* 字号 */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 17px;
+  --font-size-xl: 18px;
+
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-pill: 12px;
+
+  /* 阴影 */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-float: 0 2px 12px rgba(0, 0, 0, 0.12);
+
+  /* 间距阶梯：S3 起新组件使用；存量布局间距保持原像素值，避免视觉回归 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #12121c;
+    --color-surface: #1e1e2e;
+    --color-text: #e8e8ea;
+    --color-text-secondary: #b8b8c0;
+    --color-text-muted: #90909a;
+    --color-text-faint: #80808a;
+    --color-primary-soft: #1d2a4a;
+    --color-border: #33333f;
+    --color-input-border: #3a3a46;
+    --color-hover: #2a2a38;
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-float: 0 2px 12px rgba(0, 0, 0, 0.5);
+    /* header 本身已是深色，不需要覆写 */
+  }
+}

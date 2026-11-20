@@ -1,152 +1,254 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>InforRadar</title>
-<style>
-  * { box-sizing: border-box; margin: 0; }
-  body { font-family: system-ui, "Microsoft YaHei", sans-serif;
-         background: #f5f6f8; color: #222; }
-  header { background: #1a1a2e; color: #fff; padding: 14px 24px;
-           display: flex; gap: 24px; align-items: center; }
-  header h1 { font-size: 18px; font-weight: 600; }
-  nav button { background: none; border: none; color: #aaa; font-size: 15px;
-               padding: 6px 12px; cursor: pointer; border-radius: 6px; }
-  nav button.active { color: #fff; background: #2a2a4a; }
-  main { max-width: 760px; margin: 24px auto; padding: 0 16px; }
-  .card { background: #fff; border-radius: 10px; padding: 18px 22px;
-          margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  .meta { color: #888; font-size: 13px; margin-bottom: 8px; }
-  .badge { display: inline-block; background: #e8f0fe; color: #1a56db;
-           border-radius: 4px; padding: 1px 8px; font-size: 12px; margin-right: 6px; }
-  pre.md { white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.7; }
-  .item-title { font-size: 15px; font-weight: 600; }
-  .item-title a { color: #1a56db; text-decoration: none; }
-  .snippet { color: #555; font-size: 13px; margin: 6px 0; }
-  .fb { border: 1px solid #ddd; background: #fff; border-radius: 6px;
-        padding: 3px 10px; cursor: pointer; font-size: 13px; margin-right: 6px; }
-  .fb:hover { background: #f0f0f0; }
-  #askbox { width: 100%; padding: 10px 12px; border: 1px solid #ccc;
-            border-radius: 8px; font-size: 14px; }
-  #askbtn { padding: 10px 22px; border: none; background: #1a56db; color: #fff;
-            border-radius: 8px; cursor: pointer; margin-top: 10px; }
-  .empty { text-align: center; color: #999; padding: 40px 0; }
-</style>
-</head>
-<body>
-<header>
-  <h1>InforRadar</h1>
-  <nav>
-    <button data-view="digests" class="active">每日简报</button>
-    <button data-view="items">信息流</button>
-    <button data-view="ask">问答</button>
-  </nav>
-</header>
-<main id="content"></main>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>InforRadar</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      body {
+        font-family: system-ui, 'Microsoft YaHei', sans-serif;
+        background: #f5f6f8;
+        color: #222;
+      }
+      header {
+        background: #1a1a2e;
+        color: #fff;
+        padding: 14px 24px;
+        display: flex;
+        gap: 24px;
+        align-items: center;
+      }
+      header h1 {
+        font-size: 18px;
+        font-weight: 600;
+      }
+      nav button {
+        background: none;
+        border: none;
+        color: #aaa;
+        font-size: 15px;
+        padding: 6px 12px;
+        cursor: pointer;
+        border-radius: 6px;
+      }
+      nav button.active {
+        color: #fff;
+        background: #2a2a4a;
+      }
+      main {
+        max-width: 760px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 10px;
+        padding: 18px 22px;
+        margin-bottom: 14px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .meta {
+        color: #888;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+      .badge {
+        display: inline-block;
+        background: #e8f0fe;
+        color: #1a56db;
+        border-radius: 4px;
+        padding: 1px 8px;
+        font-size: 12px;
+        margin-right: 6px;
+      }
+      pre.md {
+        white-space: pre-wrap;
+        font-family: inherit;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+      .item-title {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .item-title a {
+        color: #1a56db;
+        text-decoration: none;
+      }
+      .snippet {
+        color: #555;
+        font-size: 13px;
+        margin: 6px 0;
+      }
+      .fb {
+        border: 1px solid #ddd;
+        background: #fff;
+        border-radius: 6px;
+        padding: 3px 10px;
+        cursor: pointer;
+        font-size: 13px;
+        margin-right: 6px;
+      }
+      .fb:hover {
+        background: #f0f0f0;
+      }
+      #askbox {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      #askbtn {
+        padding: 10px 22px;
+        border: none;
+        background: #1a56db;
+        color: #fff;
+        border-radius: 8px;
+        cursor: pointer;
+        margin-top: 10px;
+      }
+      .empty {
+        text-align: center;
+        color: #999;
+        padding: 40px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>InforRadar</h1>
+      <nav>
+        <button data-view="digests" class="active">每日简报</button>
+        <button data-view="items">信息流</button>
+        <button data-view="ask">问答</button>
+      </nav>
+    </header>
+    <main id="content"></main>
 
-<script>
-const $ = sel => document.querySelector(sel);
-const content = $("#content");
-const esc = s => String(s ?? "").replace(/[<>&"]/g,
-  c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
-const fmtTime = t => t ? String(t).slice(0, 16).replace("T", " ") : "时间未知";
+    <script>
+      const $ = (sel) => document.querySelector(sel)
+      const content = $('#content')
+      const esc = (s) =>
+        String(s ?? '').replace(
+          /[<>&"]/g,
+          (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]
+        )
+      const fmtTime = (t) => (t ? String(t).slice(0, 16).replace('T', ' ') : '时间未知')
 
-async function showDigests() {
-  content.innerHTML = `<div class="empty">加载中…</div>`;
-  const list = await (await fetch("/digests?days=7")).json();
-  if (!list.length) { content.innerHTML = `<div class="empty">还没有简报</div>`; return; }
-  content.innerHTML = "";
-  for (const d of list) {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
+      async function showDigests() {
+        content.innerHTML = `<div class="empty">加载中…</div>`
+        const list = await (await fetch('/digests?days=7')).json()
+        if (!list.length) {
+          content.innerHTML = `<div class="empty">还没有简报</div>`
+          return
+        }
+        content.innerHTML = ''
+        for (const d of list) {
+          const card = document.createElement('div')
+          card.className = 'card'
+          card.innerHTML = `
       <div class="meta">
         <span class="badge">${esc(d.category)}</span>
         ${esc(d.date)} · ${d.item_count} 条信息 · ${d.cost_tokens} tokens
         <button class="fb" style="float:right" data-see="${esc(d.category)}">查看全文</button>
       </div>
-      <div class="snippet">${esc(d.preview)}…</div>`;
-    card.querySelector("[data-see]").onclick = async () => {
-      const full = await (await fetch(`/digests/${d.category}`)).json();
-      card.querySelector(".snippet").outerHTML =
-        `<pre class="md">${esc(full.content_md)}</pre>`;
-    };
-    content.appendChild(card);
-  }
-}
+      <div class="snippet">${esc(d.preview)}…</div>`
+          card.querySelector('[data-see]').onclick = async () => {
+            const full = await (await fetch(`/digests/${d.category}`)).json()
+            card.querySelector('.snippet').outerHTML =
+              `<pre class="md">${esc(full.content_md)}</pre>`
+          }
+          content.appendChild(card)
+        }
+      }
 
-let itemCache = [];
-async function showItems() {
-  content.innerHTML = `<div class="empty">加载中…</div>`;
-  const items = await (await fetch("/items?min_score=6&limit=30")).json();
-  if (!items.length) { content.innerHTML = `<div class="empty">暂无数据</div>`; return; }
-  itemCache = items;
-  content.innerHTML = "";
-  for (const it of items) {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
+      let itemCache = []
+      async function showItems() {
+        content.innerHTML = `<div class="empty">加载中…</div>`
+        const items = await (await fetch('/items?min_score=6&limit=30')).json()
+        if (!items.length) {
+          content.innerHTML = `<div class="empty">暂无数据</div>`
+          return
+        }
+        itemCache = items
+        content.innerHTML = ''
+        for (const it of items) {
+          const card = document.createElement('div')
+          card.className = 'card'
+          card.innerHTML = `
       <div class="meta">
         <span class="badge">${esc(it.category)}</span>
         <span class="badge">评分 ${it.model_score}</span> ${fmtTime(it.published_at)}
       </div>
       <div class="item-title"><a href="${esc(it.url)}" target="_blank">${esc(it.title)}</a></div>
-      <div class="snippet">${esc(it.snippet || "")}</div>
+      <div class="snippet">${esc(it.snippet || '')}</div>
       <div>
         <button class="fb" data-r="1">👍 有用</button>
         <button class="fb" data-r="-1">👎 没用</button>
         <span class="fb-ok" style="color:#2a2;font-size:12px"></span>
-      </div>`;
-    card.querySelectorAll("[data-r]").forEach(btn => {
-      btn.onclick = async () => {
-        const res = await fetch("/feedback", {
-          method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ item_id: it.id, rating: Number(btn.dataset.r) })
-        });
-        card.querySelector(".fb-ok").textContent = res.ok ? "已记录" : "失败";
-      };
-    });
-    content.appendChild(card);
-  }
-}
+      </div>`
+          card.querySelectorAll('[data-r]').forEach((btn) => {
+            btn.onclick = async () => {
+              const res = await fetch('/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item_id: it.id, rating: Number(btn.dataset.r) }),
+              })
+              card.querySelector('.fb-ok').textContent = res.ok ? '已记录' : '失败'
+            }
+          })
+          content.appendChild(card)
+        }
+      }
 
-async function showAsk() {
-  content.innerHTML = `
+      async function showAsk() {
+        content.innerHTML = `
     <div class="card">
       <input id="askbox" placeholder="问点什么，比如：最近AI领域有什么大新闻？">
       <br><button id="askbtn">提问</button>
     </div>
-    <div id="askout"></div>`;
-  $("#askbtn").onclick = doAsk;
-  $("#askbox").onkeydown = e => { if (e.key === "Enter") doAsk(); };
-}
-async function doAsk() {
-  const q = $("#askbox").value.trim();
-  if (!q) return;
-  $("#askout").innerHTML = `<div class="card empty">思考中…</div>`;
-  const res = await fetch("/ask", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ question: q })
-  });
-  const data = await res.json();
-  const sources = (data.sources || []).map(s => `
+    <div id="askout"></div>`
+        $('#askbtn').onclick = doAsk
+        $('#askbox').onkeydown = (e) => {
+          if (e.key === 'Enter') doAsk()
+        }
+      }
+      async function doAsk() {
+        const q = $('#askbox').value.trim()
+        if (!q) return
+        $('#askout').innerHTML = `<div class="card empty">思考中…</div>`
+        const res = await fetch('/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: q }),
+        })
+        const data = await res.json()
+        const sources = (data.sources || [])
+          .map(
+            (s) => `
     <div>· <a href="${esc(s.url)}" target="_blank">${esc(s.title)}</a>
-      <span style="color:#888">[${s.id}] 相似度 ${s.similarity}</span></div>`).join("");
-  $("#askout").innerHTML = `
+      <span style="color:#888">[${s.id}] 相似度 ${s.similarity}</span></div>`
+          )
+          .join('')
+        $('#askout').innerHTML = `
     <div class="card"><pre class="md">${esc(data.answer)}</pre></div>
-    <div class="card"><div class="meta">来源</div>${sources}</div>`;
-}
+    <div class="card"><div class="meta">来源</div>${sources}</div>`
+      }
 
-const views = { digests: showDigests, items: showItems, ask: showAsk };
-document.querySelectorAll("nav button").forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    views[btn.dataset.view]();
-  };
-});
-showDigests();
-</script>
-</body>
+      const views = { digests: showDigests, items: showItems, ask: showAsk }
+      document.querySelectorAll('nav button').forEach((btn) => {
+        btn.onclick = () => {
+          document.querySelectorAll('nav button').forEach((b) => b.classList.remove('active'))
+          btn.classList.add('active')
+          views[btn.dataset.view]()
+        }
+      })
+      showDigests()
+    </script>
+  </body>
 </html>
