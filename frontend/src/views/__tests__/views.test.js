@@ -126,39 +126,29 @@ describe('FeedView 接线', () => {
     expect(wrapper.text()).not.toContain('加载更多') // has_more=false 按钮消失
   })
 
-  it('逻辑删除成功：卡片从列表移除', async () => {
-    itemsMock.mockResolvedValue({ data: [makeItem(1), makeItem(2)], has_more: false, total: 2 })
-    deleteItemMock.mockResolvedValue(null)
-    const wrapper = mount(FeedView)
-    await flushPromises()
-    expect(wrapper.findAll('.card')).toHaveLength(2)
-
-    await wrapper.findAll('button').find((b) => b.text() === '删除').trigger('click')
-    await wrapper.find('.confirm-del').trigger('click') // 两段式确认
-    await flushPromises()
-
-    expect(deleteItemMock).toHaveBeenCalledWith(1)
-    expect(wrapper.findAll('.card')).toHaveLength(1)
-  })
-
-  it('逻辑删除失败：卡片保留并提示错误', async () => {
-    itemsMock.mockResolvedValue({ data: [makeItem(1)], has_more: false, total: 1 })
-    deleteItemMock.mockRejectedValue(new Error('删除失败'))
+  it('加载更多满页时按钮消失：has_more 由"结果数 === limit"推断（旧后端适配）', async () => {
+    itemsMock
+      .mockResolvedValueOnce({
+        data: Array.from({ length: 30 }, (_, i) => makeItem(i + 1)),
+        has_more: true,
+      })
+      .mockResolvedValueOnce({ data: [makeItem(31)], has_more: false })
     const wrapper = mount(FeedView)
     await flushPromises()
 
-    await wrapper.findAll('button').find((b) => b.text() === '删除').trigger('click')
-    await wrapper.find('.confirm-del').trigger('click')
+    const loadBtn = wrapper.findAll('button').find((b) => b.text() === '加载更多')
+    expect(loadBtn).toBeDefined()
+    await loadBtn.trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.card')).toHaveLength(1) // 卡片保留
-    expect(wrapper.text()).toContain('删除失败')
+    expect(wrapper.findAll('.card')).toHaveLength(31)
+    expect(wrapper.text()).not.toContain('加载更多') // 不满页 → has_more=false
   })
 })
 
 describe('DigestsView 接线', () => {
+  // 旧后端返回纯数组，无 id 主键（category+date 定位）
   const sampleDigest = {
-    id: 11,
     category: 'ai',
     date: '2026-11-20',
     item_count: 5,
@@ -174,7 +164,7 @@ describe('DigestsView 接线', () => {
     generateDigestMock.mockReset()
   })
 
-  it('加载成功：渲染批次卡片（id 主键 + 元信息）', async () => {
+  it('加载成功：渲染批次卡片（元信息 + 预览）', async () => {
     digestListMock.mockResolvedValue([sampleDigest])
     const wrapper = mount(DigestsView)
     await flushPromises()
@@ -184,9 +174,10 @@ describe('DigestsView 接线', () => {
     expect(cards).toHaveLength(1)
     expect(cards[0].text()).toContain('ai')
     expect(cards[0].text()).toContain('2026-11-20 · 5 条信息 · 1200 tokens')
+    expect(cards[0].text()).toContain('摘要预览')
   })
 
-  it('查看全文：按 id 请求并渲染 Markdown 内容', async () => {
+  it('查看全文：按 category 请求并渲染 Markdown 内容', async () => {
     digestListMock.mockResolvedValue([{ ...sampleDigest }])
     digestDetailMock.mockResolvedValue({ content_md: '# 标题\n- 要点一' })
     const wrapper = mount(DigestsView)
@@ -194,44 +185,20 @@ describe('DigestsView 接线', () => {
 
     await wrapper.findAll('button').find((b) => b.text() === '查看全文').trigger('click')
     await flushPromises()
-    expect(digestDetailMock).toHaveBeenCalledWith(11)
+    expect(digestDetailMock).toHaveBeenCalledWith('ai')
     expect(wrapper.find('.md-content').exists()).toBe(true)
   })
 
-  it('生成最新简报：成功后提示并刷新列表', async () => {
-    digestListMock
-      .mockResolvedValueOnce([sampleDigest])
-      .mockResolvedValueOnce([sampleDigest, { ...sampleDigest, id: 12, date: '2026-11-21' }])
-    generateDigestMock.mockResolvedValue({ id: 12 })
+  it('加载失败：ErrorBanner 展示并可重试', async () => {
+    digestListMock.mockRejectedValue(new Error('网络错误'))
     const wrapper = mount(DigestsView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('网络错误')
+    digestListMock.mockResolvedValue([sampleDigest])
+    await wrapper.find('button').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('.card')).toHaveLength(1)
-
-    const genBtn = wrapper.findAll('button').find((b) => b.text() === '生成最新简报')
-    await genBtn.trigger('click')
-    await flushPromises()
-
-    expect(generateDigestMock).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('已生成最新简报')
-    expect(wrapper.findAll('.card')).toHaveLength(2) // 列表已刷新
-    expect(digestListMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('生成中按钮禁用，409 互斥提示且不刷新列表', async () => {
-    digestListMock.mockResolvedValue([sampleDigest])
-    generateDigestMock.mockRejectedValue(new Error('已有生成任务进行中，请稍后'))
-    const wrapper = mount(DigestsView)
-    await flushPromises()
-
-    const genBtn = wrapper.findAll('button').find((b) => b.text() === '生成最新简报')
-    await genBtn.trigger('click')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('已有生成任务进行中，请稍后')
-    expect(wrapper.text()).not.toContain('已生成最新简报')
-    expect(digestListMock).toHaveBeenCalledTimes(1) // 未刷新
-    // 按钮恢复可点
-    expect(wrapper.findAll('button').find((b) => b.text() === '生成最新简报')).toBeDefined()
   })
 })
 

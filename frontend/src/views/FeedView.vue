@@ -22,7 +22,6 @@
   <ErrorBanner v-else-if="error" :message="error" @retry="retry" />
   <EmptyState v-else-if="!list.length" text="暂无数据" />
   <template v-else>
-    <ErrorBanner v-if="deleteError" :message="deleteError" :retryable="false" />
     <div v-for="it in list" :key="it.id" class="card">
       <div class="meta">
         <CategoryBadge :category="it.category" />
@@ -35,9 +34,6 @@
       <div class="snippet">
         {{ it.snippet }}
       </div>
-      <div class="item-actions">
-        <DeleteButton :disabled="deletingId === it.id" @confirm="onDelete(it)" />
-      </div>
     </div>
     <div v-if="canLoadMore" class="load-more">
       <button class="fb" type="button" :disabled="loadingMore" @click="loadMore">
@@ -48,16 +44,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { deleteItem, items as fetchItems } from '../api/items'
+import { computed, onMounted } from 'vue'
+import { items as fetchItems } from '../api/items'
 import { usePagedList } from '../composables/usePagedList'
 import { formatTime } from '../utils/format'
 import CategoryBadge from '../components/ui/CategoryBadge.vue'
-import DeleteButton from '../components/ui/DeleteButton.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import ErrorBanner from '../components/ui/ErrorBanner.vue'
 import LoadingState from '../components/ui/LoadingState.vue'
 import ScoreBadge from '../components/ui/ScoreBadge.vue'
+
+// 旧后端无 DELETE /items：删除入口待后端软删除就绪后恢复（DeleteButton 组件已就绪）
 
 // 与 sources.yaml 的 category 取值对齐；后端扩展信息源时同步维护
 const CATEGORY_TABS = [
@@ -76,7 +73,6 @@ const {
   load,
   loadMore,
   setFilters,
-  removeById,
   retry,
 } = usePagedList((params) => fetchItems(params), {
   pageSize: 30,
@@ -92,23 +88,6 @@ const scoreValue = computed({
   get: () => filters.value.min_score,
   set: (v) => setFilters({ min_score: v }),
 })
-
-// §3.7 逻辑删除：失败时卡片保留（不回滚移除），错误行内提示
-const deleteError = ref('')
-const deletingId = ref(null)
-
-async function onDelete(item) {
-  deleteError.value = ''
-  deletingId.value = item.id
-  try {
-    await deleteItem(item.id)
-    removeById(item.id)
-  } catch (e) {
-    deleteError.value = e?.message || '删除失败，请稍后重试'
-  } finally {
-    deletingId.value = null
-  }
-}
 
 onMounted(load) // 首屏拉第一页
 </script>
@@ -148,10 +127,6 @@ onMounted(load) // 首屏拉第一页
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text);
-}
-
-.item-actions {
-  margin-top: 8px;
 }
 
 .load-more {
