@@ -14,6 +14,7 @@ class SearchParams(BaseModel):
     max_results: int = Field(default=20,ge=1,le=100)
     depth:Optional[str] = None
     timeout_s: Optional[int] = Field(default=None,ge=1,le=120)
+    days: Optional[int] = Field(default=None,ge=1,le=365)  # Tavily 结果时效（天），缺省不限
 
 class SourceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)

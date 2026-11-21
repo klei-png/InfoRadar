@@ -128,9 +128,12 @@ def save_scores(conn: psycopg.Connection, results: list[dict]) -> int:
     return n
 
 
-def fetch_top_item(conn: psycopg.Connection, min_score: int = 7, hours: int = 24, limit: int = 200) -> list[dict]:
+def fetch_top_item(conn: psycopg.Connection, min_score: int = 7, hours: int = 24,
+                   limit: int = 200, max_age_days: int = 7) -> list[dict]:
     """ get the high-scoring items within the time window for the summary agent to use.
-        items without published_at are excluded: digest is grouped by publish day."""
+        excludes: items without published_at (digest is grouped by publish day),
+                  already digested items (idempotency via status),
+                  stale items older than max_age_days (search engines return old pages)."""
     sql = """
         SELECT i.id,i.category,i.title,i.snippet,i.url,i.published_at,
                 s.model_score,s.reason
@@ -139,11 +142,13 @@ def fetch_top_item(conn: psycopg.Connection, min_score: int = 7, hours: int = 24
         WHERE s.model_score >= %s
             AND i.fetched_at >= NOW() - make_interval(hours => %s)
             AND i.published_at IS NOT NULL
+            AND i.published_at >= NOW() - make_interval(days => %s)
+            AND i.status <> 'digested'
         ORDER BY i.published_at DESC
         LIMIT %s
     """
     with conn.cursor() as cursor:
-        cursor.execute(sql, (min_score, hours, limit))
+        cursor.execute(sql, (min_score, hours, max_age_days, limit))
         columns = [d[0] for d in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 

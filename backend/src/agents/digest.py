@@ -5,14 +5,14 @@ from datetime import datetime
 
 
 from src.db.connection import get_conn
-from src.db.repository import fetch_top_item,save_digest
+from src.db.repository import fetch_top_item,save_digest,mark_items_status
 from src.llm.gateway import chat_with_meta,LLMError
 from src.prompts.registry import get_prompt
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "digest-v2"
-MIN_ITEMS = 3
+PROMPT_VERSION = "digest-v3"
+MIN_ITEMS = 2  # 单(日,领域)分组最低条目数：低于此不值得开一次 LLM
 
 DIGEST_SYSTEM = get_prompt("digest")
 
@@ -27,9 +27,9 @@ def _render_items(items: list[dict]) -> str:
         )
     return "\n".join(lines)
 
-async def generate_one(items: list[dict],date) -> dict:
+async def generate_one(category: str,items: list[dict],date) -> dict:
     user = (
-        f"日期：{date}\n"
+        f"领域: {category}\n日期：{date}\n"
         f"以下是{len(items)}条高分信息 (编号/分数/标题/摘要/链接)：\n\n"
         f"{_render_items(items)}"
     )
@@ -39,16 +39,17 @@ async def generate_one(items: list[dict],date) -> dict:
         temperature=0.3,
     )
     return {
+        "category":category,
         "content_md":content,
         "item_count":len(items),
         "cost_tokens":meta["prompt_tokens"]+meta["completion_tokens"],
     }
 
-async def generate_safe(items: list[dict], date) -> dict | None:
+async def generate_safe(category: str,items: list[dict], date) -> dict | None:
     """ generate briefings;if rejected by content review,split in half recursively
         and isolate toxic entries."""
     try:
-        return await generate_one(items,date)
+        return await generate_one(category,items,date)
     except LLMError as e:
         if "rejected" not in str(e):
             raise
@@ -84,32 +85,34 @@ async def run_digest(min_score: int = 7, hours: int = 24) -> dict:
         logger.info("no high-score items in window")
         return {"digests":0}
 
-    # 按 published_at 所在自然日分组，每天汇总一份 digest（跨领域）
+    # 按 (发布自然日, 领域) 双重分组：每天每个领域一份 digest，互不混淆
     groups: dict = defaultdict(list)
     for it in items:
         pub = it["published_at"]
         day = pub.date() if isinstance(pub, datetime) else pub
-        groups[day].append(it)
+        groups[(day, it["category"])].append(it)
 
     conn = get_conn()
     produced = 0
     try:
-        for day, group in sorted(groups.items()):
+        for (day, category), group in sorted(groups.items()):
             if len(group) < MIN_ITEMS:
-                logger.info("skip %s: only %d item(s)",day,len(group))
+                logger.info("skip %s/%s: only %d item(s)",day,category,len(group))
                 continue
             try:
-                d = await generate_safe(group,day)
+                d = await generate_safe(category,group,day)
                 if d is None:  # 全部被内容审核拦截
-                    logger.info("digest empty after moderation: %s",day)
+                    logger.info("digest empty after moderation: %s/%s",day,category)
                     continue
-                save_digest(conn,day,"all",d["content_md"],
+                save_digest(conn,day,category,d["content_md"],
                             d["item_count"],d["cost_tokens"],PROMPT_VERSION)
-                logger.info("digest saved: %s (%d items, %d tokens)",
-                            day,d["item_count"],d["cost_tokens"])
+                # 状态流转：该组条目标记为已消费，下次 run_digest 不再重复生成
+                mark_items_status(conn,[it["id"] for it in group],"digested")
+                logger.info("digest saved: %s/%s (%d items, %d tokens)",
+                            day,category,d["item_count"],d["cost_tokens"])
                 produced += 1
             except LLMError as e:
-                logger.error("digest failed for %s: %s",day,e)
+                logger.error("digest failed for %s/%s: %s",day,category,e)
     finally:
         conn.close()
     logger.info("digest run done: %d produced", produced)

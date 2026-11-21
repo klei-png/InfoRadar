@@ -27,10 +27,13 @@ class TavilyProvider(SearchProvider):
             "topic": self.cfg.get("topic","news"),
             "include_raw_content": False,
         }
-        if since:
-            payload["days"] = max(
-                (datetime.now(timezone.utc) - since).days,1
-            )
+        # 结果时效：优先取 source 配置的 days，与 since 推算值取较小者
+        days = int(self.cfg["days"]) if self.cfg.get("days") else None
+        if since is not None:
+            since_days = max((datetime.now(timezone.utc) - since).days, 1)
+            days = min(days, since_days) if days else since_days
+        if days:
+            payload["days"] = days
         async with session.post(self.endpoint, json=payload,timeout=30) as resp:
             resp.raise_for_status()
             data = await resp.json()
