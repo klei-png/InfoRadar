@@ -91,3 +91,18 @@ class ToolExecutor:
                 error_code="E_TOOL_FAILED",
             )
         return r
+
+    def schemas(self,allowed: list[str] | None = None) -> list[dict[str,Any]]:
+        tools = self._registry.all()
+        if allowed is not None:
+            tools = [t for t in tools if t.defn.name in allowed]
+        return [{"type": "function",
+                 "function": {"name": t.defn.name, "description": t.defn.description,
+                              "parameters": t.defn.input_schema}}
+                for t in tools]
+
+    def precheck(self, name: str) -> Tool | None:
+        tool = self._registry.get(name)
+        if tool is None or self._policy.check(tool) is not None:
+            return None
+        return tool
