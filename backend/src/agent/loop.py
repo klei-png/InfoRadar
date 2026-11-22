@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 
 from src.agent.tool_executor import ToolExecutor
+from src.agent.context import ContextManager
 from src.agent.types import *
 from src.llm.adapter import ModelAdapterError, LiteLLMAdapter
 from src.tools.base import ToolResult
@@ -41,11 +42,14 @@ class _Events:
                 raise PersistFailed(f"关键事件 {type.value} 落库失败: {e}") from e
 
 class RunExecutor:
-    def __init__(self, adapter: LiteLLMAdapter, toolx: ToolExecutor, store, ledger: ExecutionLedger) -> None:
+    def __init__(self, adapter: LiteLLMAdapter, toolx: ToolExecutor, store: RunStore,
+                 ledger: ExecutionLedger,
+                 ctx_mgr: "ContextManager | None" = None) -> None:
         self._adapter = adapter
         self._toolx = toolx
         self._store = store
         self._ledger = ledger
+        self._ctx = ctx_mgr or ContextManager()
 
     async def execute(self, run_id: str, task: str, config: RunConfig,
                       state: RunState | None = None,
@@ -75,6 +79,7 @@ class RunExecutor:
                     ctx: RunContext, ev: _Events, schemas: list[dict],
                     in_flight: dict, pending: list[ToolCall] | None = None) -> RunOutcome:
         version = 0
+        seen_calls: dict[str, int] = {}   # 死循环检测：签名(name+args) → 出现次数
         if pending:
             # 崩溃恢复：先重放 checkpoint 里未完成的工具调用（spec §2.4 决策树）
             await self._drain_pending(run_id, pending, state, ctx, ev, in_flight)
@@ -86,6 +91,17 @@ class RunExecutor:
                                         state.rounds)
             await ev.emit(EventType.ROUND_START, {"round": round_no})
             state.rounds = round_no
+
+            # 上下文压缩（M3）：接近预算时压缩旧轮 tool 结果，压缩后立即存档
+            comp = self._ctx.compact(state)
+            if comp is not None:
+                await ev.emit(EventType.CONTEXT_COMPACTED, {
+                    "rounds_total": comp.rounds_total, "rounds_kept": comp.rounds_kept,
+                    "compressed_msgs": comp.compressed_msgs,
+                    "chars_before": comp.chars_before, "chars_after": comp.chars_after})
+                version += 1
+                await self._checkpoint(run_id, state, ev, version)
+
             resp = await self._adapter.complete(state.messages, tools=schemas or None,
                 config=ModelConfig(model=config.model))
             state.usage.add(resp.usage)
@@ -138,6 +154,16 @@ class RunExecutor:
                     tool_msgs.append({"role": "tool", "tool_call_id": tc.call_id,
                                       "content": f"工具 {tc.name} 被策略拒绝，请改用其他方式"})
                     continue
+                # 死循环检测：同签名第 3 次出现 → fatal（spec 9.1；重放不计入）
+                sig = hashlib.sha256(
+                    (tc.name + json.dumps(tc.arguments, sort_keys=True)).encode()
+                ).hexdigest()
+                seen_calls[sig] = seen_calls.get(sig, 0) + 1
+                if seen_calls[sig] >= 3:
+                    return await self._fail(run_id, ev, "E_LOOP_DETECTED",
+                                            f"同签名调用 {seen_calls[sig]} 次，疑似死循环",
+                                            state.rounds)
+
                 await ev.emit(EventType.TOOL_CALL, {"call_id": tc.call_id,
                                                     "tool": tc.name,
                                                     "arguments": tc.arguments})

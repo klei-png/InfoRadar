@@ -90,6 +90,7 @@ def test_idempotent_in_flight_resumes_and_replays_second_attempt():
                                state=plan.state, pending=plan.pending)
         assert out.status == RunStatus.DONE
         assert len(ledger.records) == 1             # ★ 登记幂等：两次 create 同一 execution
+        starts = [x for x in ledger_log if x.startswith("start:")]
         assert len(starts) == 2                     # ★ 崩溃前 1 次 + 重放 1 次
         assert f"complete:{eid}:succeeded" in ledger_log
         assert any(m.get("role") == "tool" and m.get("content") == "written:hi"
