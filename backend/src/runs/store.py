@@ -19,9 +19,58 @@ _META_COLUMNS = {
 }
 
 #------------------run meta-info-----------------
+class FenceLost(RuntimeError):
+    """fencing 校验失败：本 worker 的 token 已过期（租约被他人接管）。
+    实现层错误——内核不知道它的存在，由 worker 外壳捕获处理。"""
+
+
 class PostgresRunStore(RunStore):
     def __init__(self, conn: psycopg.AsyncConnection) -> None:
         self._conn = conn
+        self._fences: dict[str, int] = {}
+
+    def use_fence(self, run_id: str, token: int) -> None:
+        self._fences[run_id] = token
+
+    def unbind(self, run_id: str) -> None:
+        self._fences.pop(run_id, None)
+
+    async def claim_lease(self, run_id: str, worker_id: str, ttl_s: float) -> int | None:
+        async with self._conn.transaction():
+            async with self._conn.cursor() as cur:
+                await cur.execute(
+                    """UPDATE agent_runs
+                       SET worker_id = %s,
+                           lease_expires_at = now() + make_interval(secs => %s),
+                           fencing_token = fencing_token + 1,
+                           heartbeat_at = now()
+                       WHERE id = %s
+                         AND status <> ALL(%s)
+                         AND (worker_id IS NULL
+                              OR lease_expires_at < now()
+                              OR worker_id = %s)
+                       RETURNING fencing_token""",
+                    (worker_id, ttl_s, run_id, TERMINAL_VALUES, worker_id),
+                )
+                row = await cur.fetchone()
+        if row is None:
+            return None
+        token = int(row[0])
+        self.use_fence(run_id, token)
+        return token
+
+    async def _touch_fence(self, run_id: str) -> None:
+        token = self._fences.get(run_id)
+        if token is None:
+            return
+        async with self._conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE agent_runs SET heartbeat_at = now() "
+                "WHERE id = %s AND fencing_token = %s",
+                (run_id, token),
+            )
+            if cur.rowcount == 0:
+                raise FenceLost(f"E_FENCE_LOST: run {run_id} 的租约已被他人接管")
 
     async def create_run(self, task: str, config: RunConfig, owner:str) -> str:
         async with self._conn.transaction():
@@ -42,6 +91,7 @@ class PostgresRunStore(RunStore):
             return
         set_clause = ", ".join(f"{c} = %s" for c in fields)
         async with self._conn.transaction():
+            await self._touch_fence(run_id)
             async with self._conn.cursor() as cur:
                 await cur.execute(
                     f"UPDATE agent_runs SET {set_clause} WHERE id = %s",
@@ -53,6 +103,7 @@ class PostgresRunStore(RunStore):
         if status not in TERMINAL:
             raise ValueError(f"{status} 不是终态，终态={TERMINAL_VALUES}")
         async with self._conn.transaction():
+            await self._touch_fence(run_id)
             async with self._conn.cursor() as cur:
                 await cur.execute(
                     """UPDATE agent_runs
@@ -72,6 +123,7 @@ class PostgresRunStore(RunStore):
         if not events:
             return
         async with self._conn.transaction():
+            await self._touch_fence(run_id)
             async with self._conn.cursor() as cur:
                 await cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))",(run_id,))
                 await cur.execute(
@@ -109,6 +161,7 @@ class PostgresRunStore(RunStore):
         if not msgs:
             return
         async with self._conn.transaction():
+            await self._touch_fence(run_id)
             async with self._conn.cursor() as cur:
                 await cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (run_id,))
                 await cur.execute(
@@ -130,6 +183,7 @@ class PostgresRunStore(RunStore):
 #------------------Checkpoint------------------------
     async def save_checkpoint(self, cp: Checkpoint) -> None:
         async with self._conn.transaction():
+            await self._touch_fence(cp.run_id)
             async with self._conn.cursor() as cur:
                 await cur.execute(
                     """INSERT INTO agent_checkpoints (run_id, version, last_event_seq, state)
