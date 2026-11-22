@@ -60,13 +60,15 @@ class RunExecutor:
         ctx = RunContext(run_id=run_id, state=state, store=self._store)
         ev = _Events(run_id, self._store)
         schemas = self._toolx.schemas(config.allowed_tools)
-        in_flight: dict = {}        #state tracker to prevent duplicate calls
+        in_flight: dict = {}
+        cp0 = await self._store.load_checkpoint(run_id)
+        version_start = cp0.version if cp0 is not None else 0
 
         try:
             await ev.emit(EventType.START, {"task": task})
             async with asyncio.timeout(config.wall_timeout):
                 return await self._loop(run_id, config, state, ctx, ev, schemas,
-                                        in_flight, pending)
+                                        in_flight, pending, version_start)
         except TimeoutError:
             return await self._on_wall_timeout(run_id, state, ev, in_flight)
         except PersistFailed as e:
@@ -77,8 +79,9 @@ class RunExecutor:
     #--------------------main loop---------------------------
     async def _loop(self,run_id: str, config: RunConfig, state: RunState,
                     ctx: RunContext, ev: _Events, schemas: list[dict],
-                    in_flight: dict, pending: list[ToolCall] | None = None) -> RunOutcome:
-        version = 0
+                    in_flight: dict, pending: list[ToolCall] | None = None,
+                    version_start: int = 0) -> RunOutcome:
+        version = version_start
         seen_calls: dict[str, int] = {}   # 死循环检测：签名(name+args) → 出现次数
         if pending:
             # 崩溃恢复：先重放 checkpoint 里未完成的工具调用（spec §2.4 决策树）
@@ -92,7 +95,6 @@ class RunExecutor:
             await ev.emit(EventType.ROUND_START, {"round": round_no})
             state.rounds = round_no
 
-            # 上下文压缩（M3）：接近预算时压缩旧轮 tool 结果，压缩后立即存档
             comp = self._ctx.compact(state)
             if comp is not None:
                 await ev.emit(EventType.CONTEXT_COMPACTED, {
@@ -136,7 +138,6 @@ class RunExecutor:
                 })
             await self._append_msgs(run_id, state.messages[-1:], round_no)
 
-            # write-ahead 存档：执行副作用前先冻结"待办"现场（崩溃后据此重放/裁决）
             side_calls = [tc for tc in resp.tool_calls
                           if (t := self._toolx.precheck(tc.name)) is not None
                           and t.defn.side_effect]
@@ -154,7 +155,7 @@ class RunExecutor:
                     tool_msgs.append({"role": "tool", "tool_call_id": tc.call_id,
                                       "content": f"工具 {tc.name} 被策略拒绝，请改用其他方式"})
                     continue
-                # 死循环检测：同签名第 3 次出现 → fatal（spec 9.1；重放不计入）
+
                 sig = hashlib.sha256(
                     (tc.name + json.dumps(tc.arguments, sort_keys=True)).encode()
                 ).hexdigest()
@@ -192,7 +193,7 @@ class RunExecutor:
     async def _drain_pending(self, run_id: str, pending: list[ToolCall],
                              state: RunState, ctx: RunContext, ev: _Events,
                              in_flight: dict) -> None:
-        """重放崩溃前未完成的工具调用：补 assistant 消息 + 逐个执行 + 回灌。"""
+
         await ev.emit(EventType.RETRY, {"replayed_tool_calls": len(pending)})
         state.messages.append({"role": "assistant", "content": "",
                                "tool_calls": [{"id": tc.call_id, "type": "function",
@@ -228,17 +229,63 @@ class RunExecutor:
         state.messages.extend(tool_msgs)
         await self._append_msgs(run_id, tool_msgs, 0)
 
+    #-----------------resolve attention--------------------
+    async def resolve_attention(self, run_id: str, verdict: str) -> RunOutcome:
+        cp = await self._store.load_checkpoint(run_id)
+        if cp is None:
+            return RunOutcome(RunStatus.FAILED, error_code="E_RECOVER_FAILED")
+        state = cp.state
+        pending = list(cp.pending_tool_calls)
+        ev = _Events(run_id, self._store)
+
+        if verdict == "abort":
+            await ev.emit(EventType.ERROR, {"error_code": "E_CANCELLED",
+                                            "reason": "人工裁决中止"})
+            await self._store.transition_terminal(run_id, RunStatus.CANCELLED,
+                                                  "E_CANCELLED")
+            return RunOutcome(RunStatus.CANCELLED, error_code="E_CANCELLED",
+                              rounds=state.rounds)
+        status = "succeeded" if verdict == "side_effect_succeeded" else "failed"
+
+
+        for tc in pending:
+            idem = hashlib.sha256(f"{run_id}{tc.call_id}".encode()).hexdigest()
+            rec = await self._ledger.get_execution(run_id, idem)
+            if rec is not None and rec["status"] == "unknown":
+                await self._ledger.complete_execution(rec["id"], status, None)
+
+        state.messages.append({
+            "role": "assistant", "content": "",
+            "tool_calls": [{"id": tc.call_id, "type": "function",
+                            "function": {"name": tc.name,
+                                         "arguments": json.dumps(tc.arguments, ensure_ascii=False)}}
+                           for tc in pending]})
+        verdict_msg = "成功，无需重试" if status == "succeeded" else "失败，请调整方案"
+        tool_msgs = [{"role": "tool", "tool_call_id": tc.call_id,
+                      "content": f"人工裁决：该副作用已确认{verdict_msg}"}
+                     for tc in pending]
+        state.messages.extend(tool_msgs)
+        await ev.emit(EventType.RETRY, {"resolved": verdict,
+                                        "calls": [tc.call_id for tc in pending]})
+        await self._append_msgs(run_id,
+                                state.messages[-(1 + len(tool_msgs)):],
+                                state.rounds)
+        await self._checkpoint(run_id, state, ev, cp.version + 1)  # pending=[] → 不再重放
+        await self._store.save_run_meta(run_id, status=RunStatus.QUEUED.value,
+                                        worker_id=None, lease_expires_at=None)
+        return RunOutcome(RunStatus.QUEUED, rounds=state.rounds)
+
     # ---------------- Tool Execution -----------------
     async def _run_tool(self, tc: ToolCall, ctx: RunContext, ev: _Events) -> ToolResult:
         r = await self._toolx.execute(tc, ctx)
         await ev.emit(EventType.TOOL_RESULT,
                       {"call_id": tc.call_id, "tool": tc.name, "ok": r.ok,
-                       "error_code": r.error_code, "content": r.content})  # 全文进事件
+                       "error_code": r.error_code, "content": r.content})
         return r
 
     async def _run_with_ledger(self, run_id: str, tc: ToolCall, ctx: RunContext,
                                ev: _Events, in_flight: dict) -> ToolResult:
-        """副作用工具：write-ahead → 执行 → 回填。spec §4：事实来源是 Ledger。"""
+
         idem_key = hashlib.sha256(f"{run_id}{tc.call_id}".encode()).hexdigest()
         eid = await self._ledger.create_execution(
             run_id, tc.name, idem_key,

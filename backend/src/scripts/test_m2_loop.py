@@ -73,7 +73,22 @@ class MemoryStore:
         return next((e for e in self.events if e.seq == seq), None)
 
     async def create_run(self, task, config, owner):
+        self._runs = getattr(self, "_runs", set())
+        self._runs.add("fake-run")
         return "fake-run"
+
+    async def get_run_meta(self, run_id):
+        if run_id not in getattr(self, "_runs", set()):
+            return None
+        status = (self.terminal[0] if self.terminal
+                  else self.meta.get("status", "running"))
+        return {"run_id": run_id, "task": self.meta.get("task", ""),
+                "status": status, "final_answer": self.meta.get("final_answer"),
+                "rounds": self.meta.get("rounds", 0),
+                "error_code": (self.terminal[1] if self.terminal
+                               else self.meta.get("error_code")),
+                "prompt_tokens": None, "completion_tokens": None,
+                "cost_usd": None, "created_at": None, "finished_at": None}
 
 
 class MemoryLedger:
@@ -106,6 +121,9 @@ class MemoryLedger:
 
     async def mark_unknown(self, execution_id):
         self.log.append(f"unknown:{execution_id}")
+        for r in self.records.values():
+            if r["id"] == execution_id:
+                r["status"] = "unknown"    # 与 PG 版一致：unknown 级联落账
 
     async def get_execution(self, run_id, idem_key):
         return self.records.get((run_id, idem_key))

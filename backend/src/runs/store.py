@@ -155,6 +155,17 @@ class PostgresRunStore(RunStore):
         return Event(event_id=str(row["event_id"]), type=EventType(row["type"]),
                      run_id=run_id, seq=seq, data=row["data"], ts=row["created_at"])
 
+    async def get_run_meta(self, run_id: str) -> dict[str, Any] | None:
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                "SELECT id, task, status, final_answer, rounds, prompt_tokens, "
+                "completion_tokens, cost_usd, error_code, created_at, finished_at "
+                "FROM agent_runs WHERE id = %s",
+                (run_id,),
+            )
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
 #---------------------message-----------------------------
     async def append_messages(self, run_id: str, msgs: list[dict[str, Any]],
                               checkpoint: bool) -> None:

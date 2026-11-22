@@ -148,6 +148,10 @@ async def ask(body:AskIn,_:None = Depends(require_auth)):
         "usage":meta,
     }
 
+# ---- M3 块②：harness 运行路由（必须在静态挂载之前注册，否则被 StaticFiles 劫持）----
+from src.api.routes import runs as runs_routes
+app.include_router(runs_routes.router)
+
 # 构建产物目录：本地 = 项目根/frontend/dist，容器 = /frontend/dist
 app.mount("/",StaticFiles(directory=Path(__file__).resolve().parents[3] / "frontend" / "dist",
                           html=True,check_dir=False),name="static")
