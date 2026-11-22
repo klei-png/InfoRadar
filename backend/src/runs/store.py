@@ -7,7 +7,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from src.agent.status import TERMINAL,RunStatus
-from src.agent.types import Checkpoint,Event,EventType,RunConfig,RunState,ToolCall
+from src.agent.types import Checkpoint,Event,EventType,RunConfig,RunState,ToolCall,RunStore
 
 TERMINAL_VALUES = [s.value for s in TERMINAL]
 
@@ -19,7 +19,7 @@ _META_COLUMNS = {
 }
 
 #------------------run meta-info-----------------
-class PostgresRunStore:
+class PostgresRunStore(RunStore):
     def __init__(self, conn: psycopg.AsyncConnection) -> None:
         self._conn = conn
 

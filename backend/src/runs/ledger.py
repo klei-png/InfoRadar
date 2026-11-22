@@ -4,9 +4,9 @@ from typing import Any, Literal
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
+from src.agent.types import ExecutionLedger
 
-class PostgresExecutionLedger:
+class PostgresExecutionLedger(ExecutionLedger):
     def __init__(self, conn: psycopg.AsyncConnection) -> None:
         self._conn = conn
 

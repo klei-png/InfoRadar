@@ -5,7 +5,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from src.agent.status import RunStatus
 from src.agent.tool_executor import ToolExecutor
 from src.agent.types import *
 from src.llm.adapter import ModelAdapterError, LiteLLMAdapter
@@ -49,7 +48,8 @@ class RunExecutor:
         self._ledger = ledger
 
     async def execute(self, run_id: str, task: str, config: RunConfig,
-                      state: RunState | None = None) -> RunOutcome:
+                      state: RunState | None = None,
+                      pending: list[ToolCall] | None = None) -> RunOutcome:
         if state is None:
             state = RunState(run_id=run_id, config_snapshot=config.model_dump(),
                              messages=[{"role": "user", "content": task}])
@@ -58,10 +58,11 @@ class RunExecutor:
         schemas = self._toolx.schemas(config.allowed_tools)
         in_flight: dict = {}        #state tracker to prevent duplicate calls
 
-        await ev.emit(EventType.START, {"task": task})
         try:
+            await ev.emit(EventType.START, {"task": task})
             async with asyncio.timeout(config.wall_timeout):
-                return await self._loop(run_id, config, state, ctx, ev, schemas, in_flight)
+                return await self._loop(run_id, config, state, ctx, ev, schemas,
+                                        in_flight, pending)
         except TimeoutError:
             return await self._on_wall_timeout(run_id, state, ev, in_flight)
         except PersistFailed as e:
@@ -72,8 +73,11 @@ class RunExecutor:
     #--------------------main loop---------------------------
     async def _loop(self,run_id: str, config: RunConfig, state: RunState,
                     ctx: RunContext, ev: _Events, schemas: list[dict],
-                    in_flight: dict) -> RunOutcome:
+                    in_flight: dict, pending: list[ToolCall] | None = None) -> RunOutcome:
         version = 0
+        if pending:
+            # 崩溃恢复：先重放 checkpoint 里未完成的工具调用（spec §2.4 决策树）
+            await self._drain_pending(run_id, pending, state, ctx, ev, in_flight)
         for round_no in range(1, config.max_rounds + 1):
             used = state.usage.prompt_tokens + state.usage.completion_tokens
             if config.token_budget is not None and used > config.token_budget:
@@ -116,6 +120,14 @@ class RunExecutor:
                 })
             await self._append_msgs(run_id, state.messages[-1:], round_no)
 
+            # write-ahead 存档：执行副作用前先冻结"待办"现场（崩溃后据此重放/裁决）
+            side_calls = [tc for tc in resp.tool_calls
+                          if (t := self._toolx.precheck(tc.name)) is not None
+                          and t.defn.side_effect]
+            if side_calls:
+                version += 1
+                await self._checkpoint(run_id, state, ev, version, pending=side_calls)
+
             tool_msgs: list[dict] = []
             for tc in resp.tool_calls:
                 tool = self._toolx.precheck(tc.name)
@@ -141,15 +153,54 @@ class RunExecutor:
                         evidence_id=f"EV-{len(state.evidence) + 1}", source=tc.name,
                         summary=r.content[:EVIDENCE_SUMMARY_CHARS],
                         content_ref=f"event:{run_id}:{ev.last_seq}"))
-                state.messages.extend(tool_msgs)
-                await self._append_msgs(run_id, tool_msgs, round_no)
-                await ev.emit(EventType.ROUND_END, {"round": round_no})
+            state.messages.extend(tool_msgs)
+            await self._append_msgs(run_id, tool_msgs, round_no)
+            await ev.emit(EventType.ROUND_END, {"round": round_no})
 
-                version += 1
-                await self._checkpoint(run_id, state, ev, version)
+            version += 1
+            await self._checkpoint(run_id, state, ev, version)
 
-            return await self._fail(run_id, ev, "E_MAX_ROUNDS",
+        return await self._fail(run_id, ev, "E_MAX_ROUNDS",
                                     f"{config.max_rounds} 轮内未得到终答", state.rounds)
+
+    async def _drain_pending(self, run_id: str, pending: list[ToolCall],
+                             state: RunState, ctx: RunContext, ev: _Events,
+                             in_flight: dict) -> None:
+        """重放崩溃前未完成的工具调用：补 assistant 消息 + 逐个执行 + 回灌。"""
+        await ev.emit(EventType.RETRY, {"replayed_tool_calls": len(pending)})
+        state.messages.append({"role": "assistant", "content": "",
+                               "tool_calls": [{"id": tc.call_id, "type": "function",
+                                               "function": {"name": tc.name,
+                                                            "arguments": json.dumps(tc.arguments, ensure_ascii=False)}}
+                                              for tc in pending]})
+        await self._append_msgs(run_id, state.messages[-1:], 0)
+        tool_msgs: list[dict] = []
+        for tc in pending:
+            tool = self._toolx.precheck(tc.name)
+            if tool is None:
+                await ev.emit(EventType.TOOL_DENIED,
+                              {"call_id": tc.call_id, "tool": tc.name,
+                               "reason": "恢复时工具不可用"})
+                tool_msgs.append({"role": "tool", "tool_call_id": tc.call_id,
+                                  "content": f"工具 {tc.name} 不可用，请改用其他方式"})
+                continue
+            await ev.emit(EventType.TOOL_CALL, {"call_id": tc.call_id,
+                                                "tool": tc.name,
+                                                "arguments": tc.arguments})
+            if tool.defn.side_effect:
+                r = await self._run_with_ledger(run_id, tc, ctx, ev, in_flight)
+            else:
+                r = await self._run_tool(tc, ctx, ev)
+            tool_msgs.append({"role": "tool", "tool_call_id": tc.call_id,
+                              "content": r.content})
+            if (r.ok and not tool.defn.side_effect
+                    and len(r.content) >= EVIDENCE_MIN_CHARS):
+                state.evidence.append(Evidence(
+                    evidence_id=f"EV-{len(state.evidence) + 1}", source=tc.name,
+                    summary=r.content[:EVIDENCE_SUMMARY_CHARS],
+                    content_ref=f"event:{run_id}:{ev.last_seq}"))
+        state.messages.extend(tool_msgs)
+        await self._append_msgs(run_id, tool_msgs, 0)
 
     # ---------------- Tool Execution -----------------
     async def _run_tool(self, tc: ToolCall, ctx: RunContext, ev: _Events) -> ToolResult:
@@ -233,8 +284,10 @@ class RunExecutor:
             raise PersistFailed(f"round{round_no} 消息落库失败: {e}") from e
 
     async def _checkpoint(self, run_id: str, state: RunState, ev: _Events,
-                          version: int) -> None:
+                          version: int,
+                          pending: list[ToolCall] | None = None) -> None:
         cp = Checkpoint(run_id=run_id, version=version, last_event_seq=ev.last_seq,
-                        state=state.model_copy(deep=True))
+                        state=state.model_copy(deep=True),
+                        pending_tool_calls=list(pending or []))
         await self._store.save_checkpoint(cp)
         await ev.emit(EventType.CHECKPOINT, {"version": version}, critical=False)
