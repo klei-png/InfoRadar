@@ -1,8 +1,3 @@
-"""agent/bus.py — 进程内实时事件总线（M3 块③）。
-
-TOKEN 打字机增量不落库（账本数据一律走 store，事件流保持干净），
-只在订阅瞬间实时推送——发布/订阅模式，发布者永不被慢消费者阻塞。
-"""
 from __future__ import annotations
 
 import asyncio
@@ -23,8 +18,6 @@ class TokenBus:
         self._subs[run_id].discard(q)
 
     def publish(self, run_id: str, delta: str) -> None:
-        """同步非阻塞：SSE 慢消费者丢增量即可（打字机可容忍缺口），
-        绝不让模型调用等任何订阅者——持久化层的数据不经过这里。"""
         for q in list(self._subs.get(run_id, ())):
             try:
                 q.put_nowait(delta)
