@@ -1,0 +1,44 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: "123456"
+          POSTGRES_DB: inforadar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U root -d inforadar"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://root:123456@localhost:5432/inforadar
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Init schema + apply migrations
+        run: |
+          uv run python -c "from src.db.connection import init_db; init_db()"
+          uv run python -m src.db.migrate
+
+      - name: Run tests (offline: LLM_SMOKE 未设置 → 评估集自动跳过)
+        run: uv run pytest src/scripts -v --tb=short
