@@ -17,6 +17,13 @@ RETRYABLE = (RateLimitError,ServiceUnavailableError,APIConnectionError,Timeout,I
 class ModelAdapterError(Exception):
     """ exception type for spec error code  E_MODEL_UNAVAILABLE；Loop layer change to FAILED """
 
+class ModelChunk:
+    """流式增量片段：delta_content=本片文本；usage 只在末片有值"""
+    def __init__(self, delta_content: str = "",
+                 usage: Usage | None = None) -> None:
+        self.delta_content = delta_content
+        self.usage = usage
+
 class ModelResponse:
     def __init__(self,content: str | None, tool_calls: list[ToolCall],
                  usage: Usage, model_version: str | None) -> None:
@@ -67,9 +74,62 @@ class LiteLLMAdapter:
         content = resp.choices[0].message.content
         return ModelResponse(content=content,tool_calls=calls,
                              usage=usage,model_version=model)
-    async def stream(self, message: list[dict[str, Any]],
-                     config: ModelConfig | None = None) -> Any:
-        raise NotImplementedError
+    async def stream(self, messages: list[dict[str, Any]],
+                     config: ModelConfig | None = None):
+        """流式调用：逐片 yield ModelChunk（文本增量）；usage 只在末片（best-effort）。
+        流式工具调用明确排除（spec §3.2）——本方法仅用于纯文本场景。"""
+        cfg = config or self.config
+        model = cfg.model or os.environ.get("LLM_MODEL", "openai/glm-4-air")
+        kwargs: dict[str, Any] = dict(model=model, messages=messages,
+                                      temperature=cfg.temperature, stream=True)
+        if cfg.max_tokens:
+            kwargs["max_tokens"] = cfg.max_tokens
+        last_exc: Exception | None = None
+        resp = None
+        for attempt in range(1, cfg.max_retries + 1):
+            try:
+                resp = await litellm.acompletion(**kwargs)
+                break
+            except RETRYABLE as e:
+                last_exc = e
+                await asyncio.sleep(getattr(e, "retry_after", None) or 2 ** attempt)
+        if resp is None:
+            raise ModelAdapterError(f"E_MODEL_UNAVAILABLE: 流式重试耗尽: {last_exc}") \
+                from last_exc
+        async for chunk in resp:
+            usage = getattr(chunk, "usage", None)
+            if usage is not None and getattr(usage, "prompt_tokens", 0):
+                yield ModelChunk(usage=Usage(
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens))
+                continue
+            delta = chunk.choices[0].delta if chunk.choices else None
+            text = (getattr(delta, "content", None) or "") if delta else ""
+            if text:
+                yield ModelChunk(delta_content=text)
+
+    async def complete_streaming(self, messages: list[dict[str, Any]],
+                                 tools: list[dict[str, Any]] | None = None,
+                                 config: ModelConfig | None = None,
+                                 on_delta=None) -> ModelResponse:
+        """内核专用：行为与 complete 等价（聚合后返回完整 ModelResponse），
+        但文本增量通过 on_delta 回调逐片外推——内核行为不变，订阅者看到打字机。
+        带 tools 的轮次回退非流式（流式工具调用排除）。"""
+        if tools:
+            return await self.complete(messages, tools=tools, config=config)
+        cfg = config or self.config
+        model = cfg.model or os.environ.get("LLM_MODEL", "openai/glm-4-air")
+        parts: list[str] = []
+        usage = Usage(prompt_tokens=0, completion_tokens=0)
+        async for ch in self.stream(messages, config):
+            if ch.delta_content:
+                parts.append(ch.delta_content)
+                if on_delta:
+                    on_delta(ch.delta_content)
+            if ch.usage is not None:
+                usage = ch.usage
+        return ModelResponse(content="".join(parts) or None, tool_calls=[],
+                             usage=usage, model_version=model)
 
     @staticmethod
     async def _call_with_retry(kwargs:dict[str,Any], max_retries: int) -> Any:

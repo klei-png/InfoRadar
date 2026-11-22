@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from src.agent.loop import RunExecutor
 from src.agent.recovery import Recovery
+from src.agent.bus import TokenBus
 from src.agent.status import TERMINAL, RunStatus
 from src.agent.types import RunConfig, RunStore
 
@@ -33,6 +34,7 @@ class KernelBundle:
     executor: RunExecutor
     recovery: Recovery
     store: RunStore
+    token_bus: "TokenBus | None" = None
 
 
 _factory = None
@@ -57,9 +59,11 @@ async def _default_factory() -> KernelBundle:
     store = PostgresRunStore(conn)
     ledger = PostgresExecutionLedger(conn)
     toolx = ToolExecutor(default_registry(), Policy())
-    executor = RunExecutor(LiteLLMAdapter(), toolx, store, ledger)
+    executor = RunExecutor(LiteLLMAdapter(), toolx, store, ledger,
+                           token_bus=TokenBus())
     return KernelBundle(executor=executor,
-                        recovery=Recovery(store, ledger, toolx), store=store)
+                        recovery=Recovery(store, ledger, toolx), store=store,
+                        token_bus=executor._bus)
 
 
 async def _bundle() -> KernelBundle:
@@ -125,30 +129,59 @@ async def run_detail(run_id: str):
 
 @router.get("/{run_id}/events")
 async def run_events(run_id: str, last_event_id: int = 0, timeout_s: float = 30):
-    """SSE：从 last_event_id+1 逐条补发，run 进终态后关闭。
-    断线重连带 Last-Event-ID 即无缝续传——事件流有 UNIQUE(run_id, seq) 兜底。"""
+    """SSE 双通道：
+    ① 历史回放——从 last_event_id+1 逐条读库（Last-Event-ID 断点续传）
+    ② 实时直播——token 打字机增量经内存总线推送（不落库，重连不补 token 帧）
+    run 进终态后关闭。"""
     bundle = await _bundle()
     if await bundle.store.get_run_meta(run_id) is None:
         raise HTTPException(404, f"run {run_id} 不存在")
+    bus = bundle.token_bus
+    queue = bus.subscribe(run_id) if bus else None
 
     async def gen():
-        seq = last_event_id
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout_s
-        while loop.time() < deadline:
-            ev = await bundle.store.get_event(run_id, seq + 1)
-            if ev is not None:
-                seq = ev.seq
-                payload = json.dumps({"type": ev.type.value, "data": ev.data,
-                                      "ts": ev.ts.isoformat()}, ensure_ascii=False)
-                yield f"id: {ev.seq}\nevent: {ev.type.value}\ndata: {payload}\n\n"
-                if ev.type.value in ("done", "error", "cancelled"):
-                    return
-            else:
+        try:
+            seq = last_event_id
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout_s
+            while loop.time() < deadline:
+                ev = await bundle.store.get_event(run_id, seq + 1)
+                if ev is not None:
+                    seq = ev.seq
+                    payload = json.dumps({"type": ev.type.value, "data": ev.data,
+                                          "ts": ev.ts.isoformat()}, ensure_ascii=False)
+                    yield f"id: {ev.seq}\nevent: {ev.type.value}\ndata: {payload}\n\n"
+                    if ev.type.value in ("done", "error", "cancelled"):
+                        break
+                    continue
+                # 历史追平（或间歇）→ 每轮都排干 token 队列（直播帧）。
+                # 注意轮询与流式存在毫秒级交错：绝不能只在追平时排干——
+                # 慢轮询可能醒来时任务已整段跑完，token 帧会全程漏发。
+                if queue is not None:
+                    while True:
+                        try:
+                            delta = queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                        yield ("event: token\n"
+                               f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n")
                 meta = await bundle.store.get_run_meta(run_id)
                 if meta and meta["status"] in _TERMINAL_VALUES:
-                    return
+                    break          # 落到统一出口：兜底排干 + finally 退订
                 await asyncio.sleep(0.2)
+            # 兜底：终态事件分支 break / 超时退出前，冲掉队列中残留的 token 帧
+            # （轮询睡眠期间任务可能整段跑完，delta 会在 done 事件后才到达队列）
+            if queue is not None:
+                while True:
+                    try:
+                        delta = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    yield ("event: token\n"
+                           f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n")
+        finally:
+            if queue is not None and bus is not None:
+                bus.unsubscribe(run_id, queue)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 

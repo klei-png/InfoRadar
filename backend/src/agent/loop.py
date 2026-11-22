@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from src.agent.tool_executor import ToolExecutor
 from src.agent.context import ContextManager
+from src.agent.bus import TokenBus
 from src.agent.types import *
 from src.llm.adapter import ModelAdapterError, LiteLLMAdapter
 from src.tools.base import ToolResult
@@ -44,12 +45,14 @@ class _Events:
 class RunExecutor:
     def __init__(self, adapter: LiteLLMAdapter, toolx: ToolExecutor, store: RunStore,
                  ledger: ExecutionLedger,
-                 ctx_mgr: "ContextManager | None" = None) -> None:
+                 ctx_mgr: "ContextManager | None" = None,
+                 token_bus: "TokenBus | None" = None) -> None:
         self._adapter = adapter
         self._toolx = toolx
         self._store = store
         self._ledger = ledger
         self._ctx = ctx_mgr or ContextManager()
+        self._bus = token_bus
 
     async def execute(self, run_id: str, task: str, config: RunConfig,
                       state: RunState | None = None,
@@ -104,8 +107,17 @@ class RunExecutor:
                 version += 1
                 await self._checkpoint(run_id, state, ev, version)
 
-            resp = await self._adapter.complete(state.messages, tools=schemas or None,
-                config=ModelConfig(model=config.model))
+            # 流式聚合（M3 块③）：文本增量实时外推给订阅者，内核拿到完整响应行为不变；
+            # 旧 fake 无 complete_streaming → 回退普通 complete（hasattr 探测）
+            on_delta = (lambda d: self._bus.publish(run_id, d)) if self._bus else None
+            if hasattr(self._adapter, "complete_streaming"):
+                resp = await self._adapter.complete_streaming(
+                    state.messages, tools=schemas or None,
+                    config=ModelConfig(model=config.model), on_delta=on_delta)
+            else:
+                resp = await self._adapter.complete(
+                    state.messages, tools=schemas or None,
+                    config=ModelConfig(model=config.model))
             state.usage.add(resp.usage)
             state.model_version = resp.model_version
             await ev.emit(EventType.USAGE, {"usage": state.usage.model_dump()},
